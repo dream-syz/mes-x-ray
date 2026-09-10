@@ -1,0 +1,23 @@
+{
+  // Keep generated output out of the explorer and search; it is all under /artifacts and node_modules.
+  "files.exclude": {
+    "artifacts": true,
+    "**/node_modules": true
+  },
+  "search.exclude": {
+    "artifacts": true,
+    "**/node_modules": true,
+    "**/package-lock.json": true
+  },
+  "files.watcherExclude": {
+    "**/artifacts/**": true,
+    "**/node_modules/**": true
+  },
+  // Group build/config files with the solution instead of scattering them over the root.
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.patterns": {
+    "MesXray.slnx": "Directory.Build.props, Directory.Packages.props, global.json, .editorconfig",
+    "package.json": "package-lock.json, tsconfig.json, vite.config.ts",
+    "README.md": ".env.example, .gitignore"
+  }
+}

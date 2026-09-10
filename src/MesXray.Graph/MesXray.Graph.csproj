@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Metadata store, snapshot import/export, cross-scanner linking and the Trace Source / Impact graph algorithms.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MesXray.Domain\MesXray.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

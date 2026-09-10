@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "1.0",
+  "source": "manual-overrides",
+  "scanVersion": "manual/1.0",
+  "nodes": [
+    {
+      "id": "page:WebVP.PickOrderDetails",
+      "type": "page",
+      "name": "Web VP - Pick Order Details",
+      "qualifiedName": "WebVisualPicking/PickOrderDetails",
+      "layer": "web",
+      "status": "known",
+      "description": "Web Visual Picking page listing the materials of one pick order with available/pick quantities, storage bins and destination wagons. Frontend component mapping is manual in the POC.",
+      "metadata": {
+        "mapping": "manual",
+        "frontend": "Web VP (TypeScript); component/service scan is a P1 input"
+      }
+    },
+    {
+      "id": "api:GET /cwp/v1/picking/pickOrder",
+      "type": "api",
+      "name": "GET /cwp/v1/picking/pickOrder",
+      "layer": "api",
+      "status": "known",
+      "description": "EBBA API endpoint returning CWPPickOrderModel[] for the authenticated user's facility and pick group."
+    },
+    {
+      "id": "method:PickOrderService.GetStorageBin",
+      "type": "method",
+      "name": "GetStorageBin",
+      "layer": "service",
+      "status": "pending",
+      "description": "Resolves storage bins for a destination wagon. The stored procedure is configured per site and is not scanned yet.",
+      "metadata": {
+        "reason": "Pending: storage bin procedure is configured per site (PickingOptions.StorageBinProcedure) and has not been scanned."
+      }
+    },
+    {
+      "id": "method:PickOrderService.GetMultiPickOrderRows",
+      "type": "method",
+      "name": "GetMultiPickOrderRows",
+      "layer": "service",
+      "status": "pending",
+      "description": "Multi pick order flow; out of scope for the first iteration.",
+      "metadata": {
+        "reason": "Pending: multi pick order flow is out of scope for the first iteration."
+      }
+    },
+    {
+      "id": "udf:dbo.AF_Pick_GetAvailableQuantity",
+      "type": "function",
+      "name": "AF_Pick_GetAvailableQuantity",
+      "qualifiedName": "dbo.AF_Pick_GetAvailableQuantity",
+      "layer": "data",
+      "status": "unknown",
+      "description": "WMS available quantity for a product at a warehouse location. Definition not provided yet (P0 input).",
+      "metadata": {
+        "reason": "Function definition not scanned. Need More Evidence before explaining AvailableQuantity when WMS_Enabled = 1."
+      }
+    },
+    {
+      "id": "param:WMS_Enabled",
+      "type": "systemParameter",
+      "name": "WMS_Enabled",
+      "layer": "config",
+      "status": "known",
+      "description": "1 = warehouse management enabled: AvailableQuantity comes from AF_Pick_GetAvailableQuantity. 0 = legacy estimate SUM(Quantity) * 10."
+    },
+    {
+      "id": "param:PickOrder_Type",
+      "type": "systemParameter",
+      "name": "PickOrder_Type",
+      "layer": "config",
+      "status": "known",
+      "description": "Filters the pick print queue rows considered by the pick order procedures."
+    },
+    {
+      "id": "param:PickDocumentClassForProductImage",
+      "type": "systemParameter",
+      "name": "PickDocumentClassForProductImage",
+      "layer": "config",
+      "status": "known",
+      "description": "Document class whose document URL is shown as the material image."
+    },
+    {
+      "id": "param:ChildContainerCalssID",
+      "type": "systemParameter",
+      "name": "ChildContainerCalssID",
+      "layer": "config",
+      "status": "known",
+      "description": "Container class used to select child containers when listing inventory locations (name kept as spelled in production)."
+    },
+    {
+      "id": "param:WL_Description_Replacement",
+      "type": "systemParameter",
+      "name": "WL_Description_Replacement",
+      "layer": "config",
+      "status": "known",
+      "description": "1 = show the translated warehouse location description instead of the raw Location code in StorageBin."
+    }
+  ],
+  "edges": [
+    {
+      "fromNodeId": "page:WebVP.PickOrderDetails",
+      "toNodeId": "api:GET /cwp/v1/picking/pickOrder",
+      "relationType": "calls",
+      "confidence": 0.9,
+      "evidenceType": "manual",
+      "evidenceRef": "Web VP pickOrder service (manual mapping, see design doc §2)",
+      "metadata": {
+        "mapping": "manual"
+      }
+    }
+  ],
+  "lineages": []
+}

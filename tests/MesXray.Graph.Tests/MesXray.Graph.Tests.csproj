@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MesXray.Graph\MesXray.Graph.csproj" />
+    <ProjectReference Include="..\..\src\MesXray.Scanner.DotNet\MesXray.Scanner.DotNet.csproj" />
+    <ProjectReference Include="..\..\src\MesXray.Scanner.Sql\MesXray.Scanner.Sql.csproj" />
+    <ProjectReference Include="..\..\src\MesXray.Runtime\MesXray.Runtime.csproj" />
+    <ProjectReference Include="..\..\src\MesXray.AI\MesXray.AI.csproj" />
+    <ProjectReference Include="..\MesXray.TestSupport\MesXray.TestSupport.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,40 @@
+<Project>
+
+  <!--
+    Shared build settings for every project in the MES X-Ray solution.
+    Target framework: .NET 10 (current LTS), pinned by global.json. See docs/adr/0002-target-framework.md.
+  -->
+  <!--
+    Single build-output folder: every project's bin/obj goes to /artifacts/{bin,obj}/<project>/ instead of
+    littering src/ and tests/ with bin/ and obj/ folders. The folder is git-ignored; `dotnet clean` or deleting
+    /artifacts resets everything.
+  -->
+  <PropertyGroup>
+    <UseArtifactsOutput>true</UseArtifactsOutput>
+    <ArtifactsPath>$(MSBuildThisFileDirectory)artifacts</ArtifactsPath>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <RootNamespace>$(MSBuildProjectName)</RootNamespace>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- CA1848/CA2254: structured logging templates are preferred but too noisy for a POC. -->
+    <!-- CA1031: catch-all handlers are intentional at scanner boundaries (we never let one file abort a scan). -->
+    <!-- CA1062: nullable reference types already enforce argument contracts. -->
+    <NoWarn>$(NoWarn);CA1848;CA1873;CA2254;CA1031;CA1062;CA1812;CA1054;CA1056;CA1055;CA2007;CA1303</NoWarn>
+  </PropertyGroup>
+
+</Project>

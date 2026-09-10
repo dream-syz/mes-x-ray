@@ -1,0 +1,136 @@
+{
+  "fixtureId": "pick-order-PICK0843858",
+  "entityType": "PickOrder",
+  "entityKey": "PICK0843858",
+  "environment": "FIXTURE",
+  "observedAt": "2026-09-08T09:15:00+08:00",
+  "traceId": "trace-demo-001",
+  "request": {
+    "facility": "FAC01",
+    "pickGroup": "PG-LINE-A",
+    "orderNo": "PICK0843858",
+    "languageId": 1033,
+    "user": "[redacted]"
+  },
+  "systemParameters": {
+    "WMS_Enabled": "1",
+    "PickOrder_Type": "STANDARD",
+    "PickDocumentClassForProductImage": "ProductImage",
+    "ChildContainerCalssID": "3",
+    "WL_Description_Replacement": "0"
+  },
+  "response": [
+    {
+      "pickOrderNo": "PICK0843858",
+      "pickGroup": "PG-LINE-A",
+      "status": "Released",
+      "isMultiPickOrder": false,
+      "totalMaterials": 3,
+      "pickOrderRows": [
+        {
+          "materialNumber": "T12288",
+          "materialDescription": "Bracket, left, zinc plated",
+          "materialImageUrl": "/documents/images/T12288.png",
+          "pickQuantity": 18,
+          "availableQuantity": 0,
+          "unit": "PCS",
+          "pickStorageBin": {
+            "storageBin": "A-01-02,A-01-05",
+            "onHandQuantity": 0,
+            "allocatedQuantity": 18
+          },
+          "destinationWagon": [
+            {
+              "physicalWagonId": "",
+              "numberOfBoxes": 3,
+              "pickGroupId": "PG-LINE-A",
+              "storageBin": []
+            }
+          ]
+        },
+        {
+          "materialNumber": "T40917",
+          "materialDescription": "Screw M6x20",
+          "materialImageUrl": "/documents/images/T40917.png",
+          "pickQuantity": 120,
+          "availableQuantity": 860,
+          "unit": "PCS",
+          "pickStorageBin": {
+            "storageBin": "B-03-11",
+            "onHandQuantity": 40,
+            "allocatedQuantity": 80
+          },
+          "destinationWagon": [
+            {
+              "physicalWagonId": "",
+              "numberOfBoxes": 2,
+              "pickGroupId": "PG-LINE-A",
+              "storageBin": []
+            }
+          ]
+        },
+        {
+          "materialNumber": "T55102",
+          "materialDescription": "Cable tie 200mm",
+          "materialImageUrl": null,
+          "pickQuantity": 50,
+          "availableQuantity": 1000,
+          "unit": "PCS",
+          "pickStorageBin": {
+            "storageBin": "C-07-01",
+            "onHandQuantity": 50,
+            "allocatedQuantity": 0
+          },
+          "destinationWagon": [
+            {
+              "physicalWagonId": "",
+              "numberOfBoxes": 1,
+              "pickGroupId": "PG-LINE-A",
+              "storageBin": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "procedureResults": {
+    "dbo.AP_Wrapper_Pick_GetPickOrderDetail": {
+      "durationMs": 12,
+      "rowKey": "PickOrderNo",
+      "rows": [
+        { "PickOrderNo": "PICK0843858", "PickGroup": "PG-LINE-A", "Status": "Released", "IsMultiPickOrder": 0, "TotalMaterials": 3, "CreatedOn": "2026-09-08T07:02:11" }
+      ]
+    },
+    "dbo.AP_Pick_GetPickOrderRows": {
+      "durationMs": 48,
+      "rowKey": "MaterialNumber",
+      "rows": [
+        { "MaterialNumber": "T12288", "MaterialDescription": "Bracket, left, zinc plated", "MaterialImageUrl": "/documents/images/T12288.png", "PickQuantity": 18, "AvailableQuantity": 0, "Unit": "PCS" },
+        { "MaterialNumber": "T40917", "MaterialDescription": "Screw M6x20", "MaterialImageUrl": "/documents/images/T40917.png", "PickQuantity": 120, "AvailableQuantity": 860, "Unit": "PCS" },
+        { "MaterialNumber": "T55102", "MaterialDescription": "Cable tie 200mm", "MaterialImageUrl": null, "PickQuantity": 50, "AvailableQuantity": 1000, "Unit": "PCS" }
+      ]
+    },
+    "dbo.AP_Pick_GetPickStorageBin": {
+      "durationMs": 31,
+      "rowKey": "MaterialNumber",
+      "rows": [
+        { "MaterialNumber": "T12288", "StorageBin": "A-01-02,A-01-05", "OnHandQuantity": 0, "AllocatedQuantity": 18 },
+        { "MaterialNumber": "T40917", "StorageBin": "B-03-11", "OnHandQuantity": 40, "AllocatedQuantity": 80 },
+        { "MaterialNumber": "T55102", "StorageBin": "C-07-01", "OnHandQuantity": 50, "AllocatedQuantity": 0 }
+      ]
+    },
+    "dbo.AP_Pick_GetDestinationWagon": {
+      "durationMs": 9,
+      "rowKey": "MaterialNumber",
+      "rows": [
+        { "MaterialNumber": "T12288", "PhysicalWagonId": "", "NumberOfBoxes": 3, "PickGroupId": "PG-LINE-A" },
+        { "MaterialNumber": "T40917", "PhysicalWagonId": "", "NumberOfBoxes": 2, "PickGroupId": "PG-LINE-A" },
+        { "MaterialNumber": "T55102", "PhysicalWagonId": "", "NumberOfBoxes": 1, "PickGroupId": "PG-LINE-A" }
+      ]
+    }
+  },
+  "unknowns": [
+    "AF_Pick_GetAvailableQuantity was evaluated inside SQL Server; its intermediate values were not captured.",
+    "GetStorageBin() result per wagon was not captured (procedure pending)."
+  ]
+}

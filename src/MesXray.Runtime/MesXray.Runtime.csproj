@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Runtime Adapter: whitelisted, read-only diagnostics backed by sanitised fixtures; tool gateway that rejects arbitrary SQL and writes.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MesXray.Domain\MesXray.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,27 @@
+# Build output — everything generated lives under /artifacts (see Directory.Build.props, vite.config.ts)
+artifacts/
+bin/
+obj/
+TestResults/
+*.trx
+
+# .NET / IDE state
+*.user
+*.suo
+.vs/
+.idea/
+*.swp
+.DS_Store
+
+# Node / Vite
+node_modules/
+src/MesXray.Web/.vite/
+npm-debug.log*
+
+# Secrets (never commit credentials; see docs/security.md)
+.env
+.env.*
+!.env.example
+appsettings.*.local.json
+*.pfx
+*.key

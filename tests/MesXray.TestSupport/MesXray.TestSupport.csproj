@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsTestProject>false</IsTestProject>
+    <Description>Shared helpers for tests: fixture path resolution.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MesXray.Domain\MesXray.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

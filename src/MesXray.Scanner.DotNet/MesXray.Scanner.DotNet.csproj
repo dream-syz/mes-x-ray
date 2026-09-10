@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Roslyn-based scanner: HTTP endpoints, method calls, Dapper stored-procedure execution, models/fields, enrichment and branches.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MesXray.Domain\MesXray.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

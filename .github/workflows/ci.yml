@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dotnet:
+    name: Build & test (.NET)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore MesXray.slnx
+
+      - name: Build (warnings are errors)
+        run: dotnet build MesXray.slnx --no-restore --configuration Release
+
+      # Scanner unit tests + graph integration tests (design §17), plus runtime/AI and API acceptance tests.
+      - name: Test
+        run: dotnet test MesXray.slnx --no-build --configuration Release --logger "trx;LogFileName=results.trx" --results-directory artifacts/test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-test-results
+          path: artifacts/test-results
+
+  web:
+    name: Type-check & build (Web)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/MesXray.Web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/MesXray.Web/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx vite build
+
+  secrets-scan:
+    name: Secret scan (fixtures & docs must stay sanitized)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

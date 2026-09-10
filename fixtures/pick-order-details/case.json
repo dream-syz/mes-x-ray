@@ -1,0 +1,45 @@
+{
+  "id": "pick-order-details",
+  "title": "Web Visual Picking - Pick Order Details",
+  "description": "Traces every field of GET /cwp/v1/picking/pickOrder back through the EBBA API, Dapper stored-procedure calls, T-SQL expressions, tables, functions and system parameters. First X-Ray case; also the 1024 demo.",
+  "rootNodeId": "page:WebVP.PickOrderDetails",
+  "apiNodeId": "api:GET /cwp/v1/picking/pickOrder",
+  "responseModelNodeId": "model:CWPPickOrderModel",
+  "keyFields": [
+    "json:pickOrderRows.availableQuantity",
+    "json:pickOrderRows.pickQuantity",
+    "json:pickOrderRows.pickStorageBin.storageBin",
+    "json:pickOrderRows.pickStorageBin.onHandQuantity",
+    "json:pickOrderRows.pickStorageBin.allocatedQuantity",
+    "json:pickOrderRows.destinationWagon.numberOfBoxes",
+    "json:pickOrderRows.destinationWagon.physicalWagonId",
+    "json:pickOrderRows.destinationWagon.storageBin.location"
+  ],
+  "systemParameters": [
+    "param:WMS_Enabled",
+    "param:PickOrder_Type",
+    "param:PickDocumentClassForProductImage",
+    "param:ChildContainerCalssID",
+    "param:WL_Description_Replacement"
+  ],
+  "defaultFixtureId": "pick-order-PICK0843858",
+  "defaultTraceId": "trace-demo-001",
+  "defaultScope": "T12288",
+  "knownGaps": [
+    {
+      "nodeId": "udf:dbo.AF_Pick_GetAvailableQuantity",
+      "reason": "Function definition has not been provided; AvailableQuantity cannot be traced past the UDF call when WMS_Enabled = 1.",
+      "priority": "P0"
+    },
+    {
+      "nodeId": "method:PickOrderService.GetStorageBin",
+      "reason": "Storage bin procedure for destination wagons is configured per site and has not been scanned.",
+      "priority": "P1"
+    },
+    {
+      "nodeId": "sp:dbo.AP_Pick_GetMultiPickOrderRows",
+      "reason": "Multi pick order flow is out of scope for the first iteration.",
+      "priority": "P2"
+    }
+  ]
+}

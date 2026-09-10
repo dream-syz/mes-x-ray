@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>MES X-Ray domain model: nodes, edges, field lineage, runtime evidence and the ports used by every other layer.</Description>
+  </PropertyGroup>
+
+</Project>

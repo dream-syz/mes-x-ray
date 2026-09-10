@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>T-SQL scanner built on ScriptDom plus a rule layer: SP/UDF definitions, tables, system parameters, alias/CASE/aggregate lineage, CTE/temp tables.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MesXray.Domain\MesXray.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

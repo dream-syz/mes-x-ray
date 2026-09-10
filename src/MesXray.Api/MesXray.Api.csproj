@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <Description>ASP.NET Core X-Ray API: case overview, graph, node, field trace, impact, runtime trace and AI endpoints.</Description>
+    <UserSecretsId>mes-xray-api</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MesXray.Domain\MesXray.Domain.csproj" />
+    <ProjectReference Include="..\MesXray.Graph\MesXray.Graph.csproj" />
+    <ProjectReference Include="..\MesXray.Scanner.DotNet\MesXray.Scanner.DotNet.csproj" />
+    <ProjectReference Include="..\MesXray.Scanner.Sql\MesXray.Scanner.Sql.csproj" />
+    <ProjectReference Include="..\MesXray.Runtime\MesXray.Runtime.csproj" />
+    <ProjectReference Include="..\MesXray.AI\MesXray.AI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MesXray.Integration.Tests" />
+  </ItemGroup>
+
+</Project>

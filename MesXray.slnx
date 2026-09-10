@@ -1,0 +1,36 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MesXray.Domain/MesXray.Domain.csproj" />
+    <Project Path="src/MesXray.Graph/MesXray.Graph.csproj" />
+    <Project Path="src/MesXray.Scanner.DotNet/MesXray.Scanner.DotNet.csproj" />
+    <Project Path="src/MesXray.Scanner.Sql/MesXray.Scanner.Sql.csproj" />
+    <Project Path="src/MesXray.Runtime/MesXray.Runtime.csproj" />
+    <Project Path="src/MesXray.AI/MesXray.AI.csproj" />
+    <Project Path="src/MesXray.Api/MesXray.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MesXray.TestSupport/MesXray.TestSupport.csproj" />
+    <Project Path="tests/MesXray.Scanner.DotNet.Tests/MesXray.Scanner.DotNet.Tests.csproj" />
+    <Project Path="tests/MesXray.Scanner.Sql.Tests/MesXray.Scanner.Sql.Tests.csproj" />
+    <Project Path="tests/MesXray.Graph.Tests/MesXray.Graph.Tests.csproj" />
+    <Project Path="tests/MesXray.Integration.Tests/MesXray.Integration.Tests.csproj" />
+  </Folder>
+  <Folder Name="/docs/">
+    <File Path="README.md" />
+    <File Path="docs/design/MES_XRay_POC_Detailed_Design_CN.md" />
+    <File Path="docs/demo-script.md" />
+    <File Path="docs/security.md" />
+    <File Path="docs/adr/0001-edge-direction-semantics.md" />
+    <File Path="docs/adr/0002-target-framework.md" />
+    <File Path="docs/adr/0003-metadata-store.md" />
+  </Folder>
+  <Folder Name="/build/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path=".editorconfig" />
+    <File Path=".env.example" />
+    <File Path=".github/workflows/ci.yml" />
+    <File Path="scripts/xray.sh" />
+  </Folder>
+</Solution>
