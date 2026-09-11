@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import type { GraphNode } from "../api/types";
 import type { XRayController } from "../state/useXRay";
 import { formatValue } from "../lib/presentation";
@@ -79,17 +80,30 @@ export function ResponseTree({ controller }: { controller: XRayController }) {
     return fromFields(state.responseFields);
   }, [state.live, state.responseFields, known]);
 
-  const isOpen = (leaf: TreeLeaf) => expanded[leaf.key] ?? leaf.depth < 2;
+  const isSelected = (leaf: TreeLeaf) => leaf.nodeId !== null && leaf.nodeId === state.selectedNodeId && (leaf.scope === null || leaf.scope === state.scope);
+
+  // Branches on the way to the selected field open automatically (unless the user closed them by hand).
+  const autoOpen = useMemo(() => {
+    const keys = new Set<string>();
+    const visit = (leaf: TreeLeaf, ancestors: string[]): void => {
+      if (isSelected(leaf)) for (const key of ancestors) keys.add(key);
+      for (const child of leaf.children) visit(child, [...ancestors, leaf.key]);
+    };
+    for (const leaf of tree) visit(leaf, []);
+    return keys;
+  }, [tree, state.selectedNodeId, state.scope]);
+
+  const isOpen = (leaf: TreeLeaf) => expanded[leaf.key] ?? (leaf.depth < 2 || autoOpen.has(leaf.key));
 
   const renderLeaf = (leaf: TreeLeaf) => {
-    const selected = leaf.nodeId !== null && leaf.nodeId === state.selectedNodeId && (leaf.scope === null || leaf.scope === state.scope);
+    const selected = isSelected(leaf);
     const traceable = leaf.nodeId !== null && known.has(leaf.nodeId);
     return (
       <li key={leaf.key}>
-        <div className={`tree-row ${selected ? "selected" : ""} ${traceable ? "traceable" : ""}`} style={{ paddingLeft: `${leaf.depth * 14 + 8}px` }}>
+        <div className={`tree-row ${selected ? "selected" : ""} ${traceable ? "traceable" : ""}`} style={{ paddingLeft: "4px" }}>
           {leaf.children.length > 0 ? (
-            <button type="button" className="tree-toggle" onClick={() => setExpanded((e) => ({ ...e, [leaf.key]: !isOpen(leaf) }))} aria-label="toggle">
-              {isOpen(leaf) ? "▾" : "▸"}
+            <button type="button" className="tree-toggle" onClick={() => setExpanded((e) => ({ ...e, [leaf.key]: !isOpen(leaf) }))} aria-label={isOpen(leaf) ? "collapse" : "expand"}>
+              {isOpen(leaf) ? <CaretDown size={11} weight="bold" /> : <CaretRight size={11} weight="bold" />}
             </button>
           ) : (
             <span className="tree-toggle" />
@@ -117,9 +131,9 @@ export function ResponseTree({ controller }: { controller: XRayController }) {
         <span className="pane-sub">{state.live ? `${state.live.entityType} ${state.live.entityKey}` : "GET /cwp/v1/picking/pickOrder (static)"}</span>
       </div>
       <div className="pane-body">
-        {tree.length === 0 ? <p className="muted">Loading response fields...</p> : <ul className="tree">{tree.map(renderLeaf)}</ul>}
+        {tree.length === 0 ? <p className="muted">Loading response fields</p> : <ul className="tree">{tree.map(renderLeaf)}</ul>}
       </div>
-      <div className="pane-footer muted">Click a field to run Trace Source. Key demo fields are highlighted.</div>
+      <div className="pane-footer">Click a field to run Trace Source. Key demo fields are in accent.</div>
     </section>
   );
 }

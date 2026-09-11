@@ -22,7 +22,7 @@ Edges are stored exactly as authored (so they read naturally in the graph and in
 
 - `RelationSemantics.UpstreamNeighbor(edge, node)` returns the producer side; Trace Source walks upstream over lineage relations only.
 - `RelationSemantics.DownstreamNeighbor(edge, node)` returns the consumer side; Impact Analysis walks downstream and propagates through structural edges (a column impacts its table's readers, a JSON field impacts its API and page).
-- The UI lays out every edge in flow direction (`DependsOn` edges are reversed for layout) so the Evidence Graph always reads Data → Web left to right.
+- The UI lays out every edge in flow direction (`DependsOn` edges are reversed for layout) so the Evidence Graph always reads Data → Web: bottom-to-top for long, narrow lineage chains, left-to-right for the broad architecture map (the direction that fills the canvas best is picked per subgraph).
 
 Edge ids are `edge:{from}|{Relation}|{to}` so the same fact from two scanners merges into one edge with the union of its evidence refs.
 

@@ -1,12 +1,27 @@
 import type { GraphNode, Layer, NodeStatus, NodeType } from "../api/types";
 
-/** Layer colour coding (design §8): Web / API / Service / Data / Config. */
-export const LAYER_COLORS: Record<Layer, { fill: string; border: string; text: string; label: string }> = {
-  web: { fill: "#eef4ff", border: "#3b6fd6", text: "#1d3f8a", label: "Web" },
-  api: { fill: "#ecfbf3", border: "#1f9d61", text: "#0f5c37", label: "API" },
-  service: { fill: "#fff6e6", border: "#d98a12", text: "#7a4a05", label: "Service" },
-  data: { fill: "#f4eeff", border: "#7a4fd0", text: "#3f2378", label: "Data" },
-  config: { fill: "#fdeeee", border: "#d0473f", text: "#7a1f1a", label: "Config" },
+/**
+ * Layers (design §8): Web / API / Service / Data / Config. The graph is monochrome on purpose: the layout already
+ * orders layers left to right, and the single accent colour is reserved for what the X-ray reveals (traced path,
+ * selection, live evidence). Layers are therefore labelled, not coloured.
+ */
+export const LAYERS: Record<Layer, { label: string }> = {
+  web: { label: "Web" },
+  api: { label: "API" },
+  service: { label: "Service" },
+  data: { label: "Data" },
+  config: { label: "Config" },
+};
+
+/** Colours that must be passed as values (SVG markers, minimap); everything else uses the CSS variables. */
+export const GRAPH_COLORS = {
+  accent: "#3fc1e8",
+  warn: "#f2b545",
+  edge: "rgba(255,255,255,0.24)",
+  edgeStructural: "rgba(255,255,255,0.16)",
+  nodeIdle: "#2a3140",
+  nodeDim: "#1a1f29",
+  mask: "rgba(10,13,18,0.72)",
 };
 
 export const TYPE_LABELS: Record<NodeType, string> = {

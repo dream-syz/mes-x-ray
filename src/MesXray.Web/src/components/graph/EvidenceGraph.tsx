@@ -1,9 +1,23 @@
-import { useEffect, useMemo } from "react";
-import { Background, Controls, MiniMap, ReactFlow, useEdgesState, useNodesState, useReactFlow, ReactFlowProvider, type NodeMouseHandler } from "@xyflow/react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  Background,
+  BackgroundVariant,
+  Controls,
+  MiniMap,
+  ReactFlow,
+  ReactFlowProvider,
+  useEdgesState,
+  useNodesInitialized,
+  useNodesState,
+  useOnViewportChange,
+  useReactFlow,
+  type NodeMouseHandler,
+  type Viewport,
+} from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { RuntimeValue, Subgraph, TraceHop } from "../../api/types";
 import type { XRayController } from "../../state/useXRay";
-import { LAYER_COLORS } from "../../lib/presentation";
+import { GRAPH_COLORS } from "../../lib/presentation";
 import { layoutGraph, type XRayFlowNode } from "./layout";
 import { XRayNode } from "./XRayNode";
 
@@ -16,18 +30,69 @@ function collectHopValues(hop: TraceHop, into: Map<string, RuntimeValue[]>, high
   for (const source of hop.sources) collectHopValues(source, into, highlighted);
 }
 
-function pickSubgraph(controller: XRayController): { subgraph: Subgraph | null; title: string } {
+function pickSubgraph(controller: XRayController): { subgraph: Subgraph | null; title: string; scanKey: string } {
   const { state } = controller;
-  if (state.mode === "architecture") return { subgraph: state.architecture, title: "Architecture · page → API → service → SQL" };
-  if (state.tab === "impact" && state.impact) return { subgraph: state.impact.graph, title: `Impact of ${state.impact.origin.name}` };
-  if (state.trace) return { subgraph: state.trace.graph, title: `Trace Source · ${state.trace.field.id}${state.trace.scope ? ` @ ${state.trace.scope}` : ""}` };
-  return { subgraph: state.architecture, title: "Architecture (run a trace to see field lineage)" };
+  if (state.mode === "architecture") return { subgraph: state.architecture, title: "Architecture: page, API, service, SQL", scanKey: "architecture" };
+  if (state.tab === "impact" && state.impact) return { subgraph: state.impact.graph, title: `Impact of ${state.impact.origin.name}`, scanKey: `impact:${state.impact.origin.id}` };
+  if (state.trace) {
+    return {
+      subgraph: state.trace.graph,
+      title: `Trace Source ${state.trace.field.id}${state.trace.scope ? ` @ ${state.trace.scope}` : ""}`,
+      scanKey: `trace:${state.trace.field.id}:${state.trace.scope ?? ""}:${state.trace.traceId ?? ""}`,
+    };
+  }
+  return { subgraph: state.architecture, title: "Architecture (run a trace to see field lineage)", scanKey: "architecture" };
+}
+
+/** A single left-to-right sweep when a new trace or impact result arrives: the X-ray has just been taken. */
+function ScanSweep({ scanKey }: { scanKey: string }) {
+  const [active, setActive] = useState<string | null>(null);
+  useEffect(() => {
+    if (scanKey.startsWith("architecture")) return;
+    setActive(scanKey);
+  }, [scanKey]);
+  if (!active) return null;
+  return <div key={active} className="scan-sweep" aria-hidden onAnimationEnd={() => setActive(null)} />;
+}
+
+/**
+ * Below this zoom the nodes drop to a name-only rendering and edge labels are hidden (see `.zoom-far` in styles.css).
+ * At 0.7 the 10px detail text would already be under 7px on screen, so the large name is the more readable choice.
+ */
+const FAR_ZOOM = 0.7;
+
+/** Applies the level-of-detail class straight to the DOM so that panning and zooming never re-render React. */
+function LevelOfDetail({ target }: { target: RefObject<HTMLDivElement | null> }) {
+  useOnViewportChange({
+    onChange: (viewport: Viewport) => target.current?.classList.toggle("zoom-far", viewport.zoom < FAR_ZOOM),
+  });
+  return null;
 }
 
 function Canvas({ controller }: { controller: XRayController }) {
   const { state, selectNode } = controller;
-  const { subgraph, title } = pickSubgraph(controller);
+  const { subgraph, title, scanKey } = pickSubgraph(controller);
   const { fitView } = useReactFlow();
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+
+  // Canvas aspect ratio, measured before the first paint and then on resize (rounded so that resizing does not
+  // trigger a relayout on every pixel).
+  const [aspect, setAspect] = useState(1.6);
+  const measure = (width: number, height: number) => {
+    if (width > 0 && height > 0) setAspect(Math.round((width / height) * 10) / 10);
+  };
+  useLayoutEffect(() => {
+    const element = canvasRef.current;
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    measure(rect.width, rect.height);
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect;
+      if (box) measure(box.width, box.height);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const layout = useMemo(() => {
     if (!subgraph) return { nodes: [] as XRayFlowNode[], edges: [] };
@@ -43,6 +108,9 @@ function Canvas({ controller }: { controller: XRayController }) {
     } else if (state.tab === "impact" && state.impact && subgraph === state.impact.graph) {
       focusId = state.impact.origin.id;
       for (const path of state.impact.keyPaths) for (const id of path) highlighted.add(id);
+    } else if (subgraph === state.architecture && state.overview) {
+      // The architecture map gets one anchor: the page the case starts from.
+      focusId = state.overview.case.rootNodeId;
     }
 
     // Live values for nodes not on the traced path (e.g. parameters) come straight from the runtime trace.
@@ -55,30 +123,78 @@ function Canvas({ controller }: { controller: XRayController }) {
       }
     }
 
-    return layoutGraph({ nodes: subgraph.nodes, edges: subgraph.edges, runtimeValues, highlighted, pathNodeIds, focusId });
-  }, [subgraph, state.mode, state.trace, state.impact, state.tab, state.live, state.scope]);
+    return layoutGraph({ nodes: subgraph.nodes, edges: subgraph.edges, runtimeValues, highlighted, pathNodeIds, focusId, aspect });
+  }, [subgraph, state.mode, state.trace, state.impact, state.tab, state.live, state.scope, state.architecture, state.overview, aspect]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<XRayFlowNode>(layout.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(layout.edges);
+  const nodesInitialized = useNodesInitialized();
+  const [layoutVersion, setLayoutVersion] = useState(0);
 
   useEffect(() => {
     setNodes(layout.nodes);
     setEdges(layout.edges);
-    const handle = window.setTimeout(() => void fitView({ padding: 0.15, duration: 300 }), 30);
-    return () => window.clearTimeout(handle);
-  }, [layout, setNodes, setEdges, fitView]);
+    setLayoutVersion((v) => v + 1);
+  }, [layout, setNodes, setEdges]);
+
+  // Fit once the new nodes have been measured; fitting earlier would frame only the nodes React Flow already knows.
+  // React Flow queues the fit and flushes it on the next node update (or in a requestAnimationFrame, which throttled
+  // or headless tabs may never run); nudging the nodes state flushes it right away. Should the glide still not settle
+  // (interrupted gesture), the camera snaps into place instead of stopping halfway.
+  useEffect(() => {
+    if (!nodesInitialized || layout.nodes.length === 0) return;
+    let fallback: number | undefined;
+    const handle = window.setTimeout(() => {
+      let settled = false;
+      void fitView({ padding: 0.08, duration: 400 }).then(() => {
+        settled = true;
+      });
+      setNodes((current) => [...current]);
+      fallback = window.setTimeout(() => {
+        if (!settled) {
+          void fitView({ padding: 0.08, duration: 0 });
+          setNodes((current) => [...current]);
+        }
+      }, 700);
+    }, 20);
+    return () => {
+      window.clearTimeout(handle);
+      if (fallback !== undefined) window.clearTimeout(fallback);
+    };
+  }, [nodesInitialized, layoutVersion, layout.nodes.length, fitView, setNodes]);
 
   const onNodeClick: NodeMouseHandler<XRayFlowNode> = (_event, node) => void selectNode(node.id);
+
+  const minimapColor = (n: XRayFlowNode) => {
+    if (n.data.focus || n.data.highlighted || n.data.onPath) return GRAPH_COLORS.accent;
+    if (n.data.node.status !== "known") return GRAPH_COLORS.warn;
+    return n.data.dimmed ? GRAPH_COLORS.nodeDim : GRAPH_COLORS.nodeIdle;
+  };
 
   return (
     <>
       <div className="pane-header">
         <h2>Evidence Graph</h2>
         <span className="pane-sub">{title}</span>
-        {subgraph?.truncated && <span className="warn-chip">truncated</span>}
+        {subgraph?.truncated && <span className="chip-warn">truncated</span>}
+        <div className="legend">
+          <span className="legend-item">
+            <i /> traced path, in data-flow direction
+          </span>
+          <span className="legend-item">
+            <i className="legend-value" /> live value
+          </span>
+          <span className="legend-item">
+            <i className="legend-gap" /> unknown or pending
+          </span>
+          <span className="legend-item">
+            <i className="legend-structural" /> structural
+          </span>
+        </div>
       </div>
-      <div className="graph-canvas">
+      <div className="graph-canvas" ref={canvasRef}>
         <ReactFlow
+          colorMode="dark"
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
@@ -90,23 +206,12 @@ function Canvas({ controller }: { controller: XRayController }) {
           nodesConnectable={false}
           proOptions={{ hideAttribution: true }}
         >
-          <Background gap={18} size={1} />
-          <MiniMap pannable zoomable nodeColor={(n) => LAYER_COLORS[(n as XRayFlowNode).data.node.layer]?.border ?? "#999"} />
+          <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="rgba(255,255,255,0.09)" />
+          <MiniMap pannable zoomable style={{ width: 150, height: 110 }} nodeColor={(n) => minimapColor(n as XRayFlowNode)} nodeStrokeWidth={0} maskColor={GRAPH_COLORS.mask} />
           <Controls showInteractive={false} />
+          <LevelOfDetail target={canvasRef} />
         </ReactFlow>
-      </div>
-      <div className="pane-footer legend">
-        {Object.entries(LAYER_COLORS).map(([layer, palette]) => (
-          <span key={layer} className="legend-item">
-            <i style={{ background: palette.fill, borderColor: palette.border }} /> {palette.label}
-          </span>
-        ))}
-        <span className="legend-item">
-          <i className="legend-gap" /> Unknown / Pending
-        </span>
-        <span className="legend-item">
-          <i className="legend-flow" /> data flow (dependsOn edges drawn in flow direction)
-        </span>
+        <ScanSweep scanKey={scanKey} />
       </div>
     </>
   );

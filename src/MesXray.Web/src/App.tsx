@@ -11,8 +11,11 @@ export default function App() {
   if (controller.state.busy.boot && !controller.state.overview) {
     return (
       <div className="boot">
-        <div className="brand-mark large">X</div>
-        <p>{controller.state.error ? `Cannot reach the X-Ray API: ${controller.state.error}` : "Loading the evidence graph…"}</p>
+        <div className="brand-mark large" aria-hidden>
+          X
+        </div>
+        {controller.state.error ? <p className="status-error">Cannot reach the X-Ray API: {controller.state.error}</p> : <p>Scanning the evidence graph</p>}
+        {!controller.state.error && <div className="boot-bar" aria-hidden />}
       </div>
     );
   }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import type { EvidenceItem, ExplainResponse } from "../../api/types";
 import { percent } from "../../lib/presentation";
 
@@ -16,7 +16,7 @@ function EvidenceChips({ ids, index, onSelect }: { ids: string[]; index: Map<str
         const nodeId = item?.nodeId ?? (id.includes(":") && !id.startsWith("edge:") && !id.startsWith("lineage:") ? id : null);
         return (
           <button key={id} type="button" className={`evidence-chip kind-${item?.kind ?? "missing"}`} title={item?.text ?? id} onClick={() => nodeId && onSelect(nodeId)} disabled={!nodeId}>
-            {id.length > 34 ? `${id.slice(0, 34)}…` : id}
+            {id.length > 34 ? `${id.slice(0, 34)}...` : id}
           </button>
         );
       })}
@@ -32,15 +32,27 @@ export function ExplainView({ response, onSelect }: { response: ExplainResponse;
 
   return (
     <div className="explain-view">
-      <h3>
-        AI Explain · <code>{response.focusNodeId}</code>
-      </h3>
-      <div className="verdict-row">
-        <span className={`verdict ${verdict.className}`}>{verdict.label}</span>
-        <span className="confidence" title="Confidence is capped by the evidence-binding validator">
-          confidence {percent(explanation.confidence)}
-        </span>
-        <span className="muted">{explanation.evidenceCount} evidence items</span>
+      <div className="view-title">
+        <h3>{explanation.audit.provider === "rules" ? "Explain" : "AI Explain"}</h3>
+        <code>{response.focusNodeId}</code>
+      </div>
+
+      <div className={`verdict ${verdict.className}`} style={{ "--confidence": percent(explanation.confidence) } as CSSProperties}>
+        <div className="verdict-label">{verdict.label}</div>
+        <div className="verdict-meta">
+          <span className="metric" title="Confidence is capped by the evidence-binding validator">
+            <b>{percent(explanation.confidence)}</b> confidence
+          </span>
+          <span className="metric">
+            <b>{explanation.evidenceCount}</b> evidence items
+          </span>
+          <span className="metric">
+            <b>{explanation.knownFacts.length}</b> facts
+          </span>
+          <span className="metric">
+            <b>{explanation.unknowns.length}</b> unknowns
+          </span>
+        </div>
       </div>
       <p className="summary">{explanation.summary}</p>
 
@@ -51,7 +63,7 @@ export function ExplainView({ response, onSelect }: { response: ExplainResponse;
         ))}
       </ol>
 
-      <span className="section-label">Known facts ({explanation.knownFacts.length}) — each bound to evidence</span>
+      <span className="section-label">Known facts, each bound to evidence</span>
       <ul className="facts">
         {explanation.knownFacts.map((f) => (
           <li key={f.text}>
@@ -61,9 +73,9 @@ export function ExplainView({ response, onSelect }: { response: ExplainResponse;
         ))}
       </ul>
 
-      <span className="section-label">Hypotheses ({explanation.hypotheses.length})</span>
+      <span className="section-label">Hypotheses</span>
       {explanation.hypotheses.length === 0 ? (
-        <p className="muted">None — every claim is evidenced.</p>
+        <p className="muted">None. Every claim is evidenced.</p>
       ) : (
         <ul className="hypotheses">
           {explanation.hypotheses.map((h) => (
@@ -76,7 +88,7 @@ export function ExplainView({ response, onSelect }: { response: ExplainResponse;
         </ul>
       )}
 
-      <span className="section-label">Unknowns ({explanation.unknowns.length})</span>
+      <span className="section-label">Unknowns</span>
       {explanation.unknowns.length === 0 ? (
         <p className="ok">No gaps on this path.</p>
       ) : (
@@ -102,14 +114,43 @@ export function ExplainView({ response, onSelect }: { response: ExplainResponse;
 
       <div className="audit">
         <span className="section-label">Audit</span>
-        <div className="muted">
-          provider <code>{explanation.audit.provider}</code> · model <code>{explanation.audit.model}</code> · prompt <code>{explanation.audit.promptVersion}</code> ·{" "}
-          {new Date(explanation.audit.timestamp).toLocaleString()} · {explanation.audit.evidenceIds.length} evidence ids
-          {explanation.audit.note && <> · {explanation.audit.note}</>}
-        </div>
+        <dl className="metadata">
+          <div>
+            <dt>provider</dt>
+            <dd>
+              <code>{explanation.audit.provider}</code>
+            </dd>
+          </div>
+          <div>
+            <dt>model</dt>
+            <dd>
+              <code>{explanation.audit.model}</code>
+            </dd>
+          </div>
+          <div>
+            <dt>prompt</dt>
+            <dd>
+              <code>{explanation.audit.promptVersion}</code>
+            </dd>
+          </div>
+          <div>
+            <dt>timestamp</dt>
+            <dd>{new Date(explanation.audit.timestamp).toLocaleString()}</dd>
+          </div>
+          <div>
+            <dt>evidence ids</dt>
+            <dd>{explanation.audit.evidenceIds.length}</dd>
+          </div>
+          {explanation.audit.note && (
+            <div>
+              <dt>note</dt>
+              <dd>{explanation.audit.note}</dd>
+            </div>
+          )}
+        </dl>
       </div>
 
-      <button type="button" className="ghost small" onClick={() => setShowEvidence((v) => !v)}>
+      <button type="button" className="btn ghost small" style={{ marginTop: 10 }} onClick={() => setShowEvidence((v) => !v)}>
         {showEvidence ? "Hide" : "Show"} evidence bundle ({evidence.length})
       </button>
       {showEvidence && (

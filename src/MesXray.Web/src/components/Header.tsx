@@ -13,10 +13,12 @@ export function Header({ controller }: { controller: XRayController }) {
   return (
     <header className="header">
       <div className="brand">
-        <span className="brand-mark">X</span>
+        <span className="brand-mark" aria-hidden>
+          X
+        </span>
         <div>
           <div className="brand-title">MES X-Ray</div>
-          <div className="brand-sub">{state.overview?.case.title ?? "System explainability & data lineage"}</div>
+          <div className="brand-sub">{state.overview?.case.title ?? "System explainability and data lineage"}</div>
         </div>
       </div>
 
@@ -34,8 +36,8 @@ export function Header({ controller }: { controller: XRayController }) {
           Pick order
           <input value={orderNo} onChange={(e) => setOrderNo(e.target.value)} placeholder="PICK0843858" spellCheck={false} />
         </label>
-        <button type="submit" disabled={!!state.busy.live}>
-          {state.busy.live ? "Tracing..." : "Trace"}
+        <button type="submit" className="btn primary" disabled={!!state.busy.live}>
+          {state.busy.live ? "Tracing" : "Trace"}
         </button>
         {state.live && (
           <>
@@ -50,10 +52,11 @@ export function Header({ controller }: { controller: XRayController }) {
                 ))}
               </select>
             </label>
-            <span className={`env-badge env-${state.live.environment.toLowerCase()}`} title={`Trace ${state.live.traceId} observed ${state.live.observedAt}`}>
-              {state.live.environment} · {state.live.traceId}
+            <span className={`live-badge env-${state.live.environment.toLowerCase()}`} title={`Trace ${state.live.traceId} observed ${state.live.observedAt}`}>
+              <span className="dot" aria-hidden />
+              {state.live.environment} {state.live.traceId}
             </span>
-            <button type="button" className="ghost" onClick={stopLiveTrace}>
+            <button type="button" className="btn ghost" onClick={stopLiveTrace}>
               Clear
             </button>
           </>

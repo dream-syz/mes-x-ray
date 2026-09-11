@@ -1,19 +1,17 @@
+import { ArrowLeft, ArrowRight } from "@phosphor-icons/react";
 import type { NodeDetailsResponse } from "../../api/types";
-import { formatValue, LAYER_COLORS, relationLabel, STATUS_LABELS, TYPE_LABELS } from "../../lib/presentation";
+import { formatValue, LAYERS, relationLabel, STATUS_LABELS, TYPE_LABELS } from "../../lib/presentation";
 
 export function DetailsView({ response, onSelect }: { response: NodeDetailsResponse; onSelect: (id: string) => void }) {
   const { details, runtimeValues } = response;
   const node = details.node;
-  const palette = LAYER_COLORS[node.layer];
   const metadata = Object.entries(node.metadata ?? {}).filter(([key]) => key !== "reason");
 
   return (
     <div className="details-view">
       <div className="node-title">
-        <span className="layer-chip" style={{ background: palette.border }}>
-          {palette.label}
-        </span>
-        <span className="node-type">{TYPE_LABELS[node.type] ?? node.type}</span>
+        <span>{LAYERS[node.layer]?.label ?? node.layer}</span>
+        <span>{TYPE_LABELS[node.type] ?? node.type}</span>
         <span className={`status-chip ${node.status}`}>{STATUS_LABELS[node.status]}</span>
       </div>
       <h3 title={node.id}>{node.name}</h3>
@@ -28,7 +26,7 @@ export function DetailsView({ response, onSelect }: { response: NodeDetailsRespo
             {node.source.path}
             {node.source.startLine ? `:L${node.source.startLine}${node.source.endLine && node.source.endLine !== node.source.startLine ? `-L${node.source.endLine}` : ""}` : ""}
           </code>
-          {node.scanVersion && <span className="muted"> · {node.scanVersion}</span>}
+          {node.scanVersion && <span className="muted"> ({node.scanVersion})</span>}
         </div>
       )}
 
@@ -38,7 +36,10 @@ export function DetailsView({ response, onSelect }: { response: NodeDetailsRespo
           <ul className="runtime-values">
             {runtimeValues.map((v) => (
               <li key={v.evidenceId}>
-                <code>{v.evidenceId}</code> {v.label} = <strong>{formatValue(v.value)}</strong> <span className="muted">({v.evidenceType})</span>
+                <span className="value-chip">
+                  {v.label} = {formatValue(v.value)}
+                </span>{" "}
+                <code className="muted">{v.evidenceId}</code> <span className="muted">({v.evidenceType})</span>
               </li>
             ))}
           </ul>
@@ -94,22 +95,28 @@ export function DetailsView({ response, onSelect }: { response: NodeDetailsRespo
       <ul className="edges">
         {details.outgoing.map((e) => (
           <li key={e.id}>
-            <span className="edge-dir">→</span> <span className="hop-relation">{relationLabel(e.relationType)}</span>{" "}
+            <span className="edge-dir" aria-label="outgoing">
+              <ArrowRight size={12} />
+            </span>
+            <span className="hop-relation">{relationLabel(e.relationType)}</span>
             <button type="button" className="link" onClick={() => onSelect(e.toNodeId)}>
               {e.toNodeId}
             </button>
             {e.metadata?.condition && <span className="hop-condition">{e.metadata.condition}</span>}
-            <span className="muted"> · {e.evidenceType}</span>
+            <span className="muted">({e.evidenceType})</span>
           </li>
         ))}
         {details.incoming.map((e) => (
           <li key={e.id}>
-            <span className="edge-dir">←</span> <span className="hop-relation">{relationLabel(e.relationType)}</span>{" "}
+            <span className="edge-dir" aria-label="incoming">
+              <ArrowLeft size={12} />
+            </span>
+            <span className="hop-relation">{relationLabel(e.relationType)}</span>
             <button type="button" className="link" onClick={() => onSelect(e.fromNodeId)}>
               {e.fromNodeId}
             </button>
             {e.metadata?.condition && <span className="hop-condition">{e.metadata.condition}</span>}
-            <span className="muted"> · {e.evidenceType}</span>
+            <span className="muted">({e.evidenceType})</span>
           </li>
         ))}
       </ul>

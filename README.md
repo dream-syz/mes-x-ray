@@ -147,6 +147,15 @@ Follow [`docs/demo-script.md`](docs/demo-script.md) (design §14). The UI also s
 | FIFO / `STRING_AGG` storage-bin lineage | `/?order=PICK0843858&field=json:pickOrderRows.pickStorageBin.storageBin&scope=T12288` |
 | Unknown by design: destination wagon storage bin | `/?field=json:pickOrderRows.destinationWagon.storageBin.location&explain=1` |
 
+### How the UI reads
+
+The UI is styled as an X-ray film: one dark theme, one accent. Everything the graph knows sits in grey; the accent is reserved for what the X-ray reveals, i.e. the traced path, the selected node and live evidence. Amber marks Unknown / Pending / Need More Evidence and red marks refuted hypotheses; nothing else is coloured. Layers (Web, API, Service, Data, Config) are labelled on each node rather than colour-coded.
+
+- The Evidence Graph is ranked in data-flow direction and picks the orientation that fills the canvas best: long lineage chains run top-to-bottom (surface on top, SQL at the bottom, as in the design §8 wireframe), the broad architecture map runs left-to-right.
+- When a trace or impact result arrives, a single sweep crosses the canvas, the lit path is drawn in flow order and everything off the path steps back. Zoomed out, nodes fall back to a large name-only rendering so the map stays legible; zoom in for types, layers, live values and edge conditions.
+- Explain / Investigate open with the verdict (Known, Need More Evidence, Unknown) and the confidence; every fact below it carries its evidence ids.
+- Fonts (Geist, Geist Mono) and icons (Phosphor) are bundled with the app; nothing is loaded from the internet. Motion honours `prefers-reduced-motion`.
+
 ## API
 
 All routes are under `/api/xray`; OpenAPI at `/openapi/v1.json`.
