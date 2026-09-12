@@ -10,6 +10,7 @@ public sealed class SqlScannerTests : IClassFixture<SqlScannerTests.ScanFixture>
     private const string Rows = "dbo.AP_Pick_GetPickOrderRows";
     private const string Bins = "dbo.AP_Pick_GetPickStorageBin";
     private const string Wagon = "dbo.AP_Pick_GetDestinationWagon";
+    private const string Udf = "dbo.AF_Pick_GetAvailableQuantity";
 
     private readonly ScanResult _result;
 
@@ -57,11 +58,90 @@ public sealed class SqlScannerTests : IClassFixture<SqlScannerTests.ScanFixture>
     }
 
     [Fact]
-    public void Function_without_definition_stays_unknown()
+    public void Functions_referenced_without_a_definition_stay_unknown()
     {
-        var udf = Node("udf:dbo.AF_Pick_GetAvailableQuantity");
-        Assert.Equal(NodeStatus.Unknown, udf.Status);
-        AssertEdge($"sp:{Rows}", RelationType.CallsFunction, "udf:dbo.AF_Pick_GetAvailableQuantity");
+        // The typed parameter readers are called by AF_Pick_GetAvailableQuantity but their bodies are not in the fixture.
+        var reader = Node("udf:dbo.AF_GetSystemParameterValueint");
+        Assert.Equal(NodeStatus.Unknown, reader.Status);
+        AssertEdge($"udf:{Udf}", RelationType.CallsFunction, "udf:dbo.AF_GetSystemParameterValueint");
+
+        var tvf = Node("udf:dbo.AF_GetSystemParameterValueListString");
+        Assert.Equal(NodeStatus.Unknown, tvf.Status);
+        AssertEdge($"udf:{Udf}", RelationType.CallsFunction, "udf:dbo.AF_GetSystemParameterValueListString");
+    }
+
+    [Fact]
+    public void Scalar_function_is_known_and_returns_through_its_own_expression()
+    {
+        var udf = Node($"udf:{Udf}");
+        Assert.Equal(NodeStatus.Known, udf.Status);
+        Assert.Equal("scalarFunction", udf.GetMetadata("objectType"));
+        Assert.Equal("INT", udf.GetMetadata("returnType"));
+        AssertEdge($"sp:{Rows}", RelationType.CallsFunction, $"udf:{Udf}");
+
+        var ret = Node($"expr:{Udf}.$.RETURN");
+        Assert.Equal("return", ret.GetMetadata("kind"));
+        Assert.Equal($"udf:{Udf}", ret.GetMetadata("produces"));
+        Assert.Equal("IF EXISTS (DET2_ILG_ProductDeliveryMethod WHERE DIP.DeliveryMethod = 'LVP' ...) RETURN 1000 ELSE RETURN ISNULL(SUM(QuantityOnHand), 0)", ret.GetMetadata("expression"));
+        AssertEdge($"expr:{Udf}.$.RETURN", RelationType.Produces, $"udf:{Udf}");
+
+        // RETURN @Result with @Result = ISNULL(SUM(QuantityOnHand), 0) FROM InventoryData: the local variable is inlined.
+        var result = AssertEdge($"expr:{Udf}.$.RETURN", RelationType.DerivedFrom, $"ctecol:{Udf}.InventoryData.QuantityOnHand");
+        Assert.Equal("ELSE", result.GetMetadata("condition"));
+        Assert.Equal("@Result", result.GetMetadata("variable"));
+
+        // IF EXISTS (...) RETURN 1000: the predicate columns control the value, the constant is a literal lineage.
+        foreach (var column in new[] { "DeliveryMethod", "Facility", "Product", "ValidFrom", "ValidTo" })
+        {
+            Assert.Equal("control", AssertEdge($"expr:{Udf}.$.RETURN", RelationType.ControlledBy, $"column:dbo.DET2_ILG_ProductDeliveryMethod.{column}").GetMetadata("role"));
+        }
+
+        AssertEdge($"expr:{Udf}.$.RETURN", RelationType.ControlledBy, "column:dbo.PRODUCT.ProductNo");
+
+        var literal = Assert.Single(_result.Snapshot.Lineages, l => l.OutputFieldId == $"udf:{Udf}" && l.SourceFieldId is null);
+        Assert.Equal(TransformType.Literal, literal.TransformType);
+        Assert.Equal("1000", literal.Expression);
+        Assert.Equal("EXISTS (DET2_ILG_ProductDeliveryMethod WHERE DIP.DeliveryMethod = 'LVP' ...)", literal.Condition);
+
+        var sum = Assert.Single(_result.Snapshot.Lineages, l => l.OutputFieldId == $"udf:{Udf}" && l.SourceFieldId == $"ctecol:{Udf}.InventoryData.QuantityOnHand");
+        Assert.Equal(TransformType.Conditional, sum.TransformType);
+        Assert.Equal("ISNULL(SUM(QuantityOnHand), 0)", sum.Expression);
+        Assert.Equal("ELSE", sum.Condition);
+    }
+
+    [Fact]
+    public void Local_variables_assigned_inside_IF_carry_their_guards_into_the_expressions_that_use_them()
+    {
+        var expr = Node($"expr:{Udf}.InventoryData.QuantityOnHand");
+        Assert.Equal("case", expr.GetMetadata("kind"));
+        Assert.Equal("@UseQuantityAllocated = 0 -> 1 WHEN EXISTS (DET2_ILG_ProductDeliveryMethod WHERE DIP.DeliveryMethod IN ('LVS_MPA','SLFR_MPA','LVS_LINE','SLFR_LINE') ...)", expr.GetMetadata("variables"));
+
+        var control = AssertEdge($"expr:{Udf}.InventoryData.QuantityOnHand", RelationType.ControlledBy, "column:dbo.DET2_ILG_ProductDeliveryMethod.DeliveryMethod");
+        Assert.Equal("@UseQuantityAllocated", control.GetMetadata("variable"));
+        Assert.Null(AssertEdge($"expr:{Udf}.InventoryData.QuantityOnHand", RelationType.ControlledBy, "column:dbo.PRODUCT_GROUP.Group_").GetMetadata("variable"));
+
+        Assert.Equal("@UseQuantityAllocated = 1 | PG.Group_ = 'ECU'", AssertEdge($"expr:{Udf}.InventoryData.QuantityOnHand", RelationType.DerivedFrom, "column:dbo.INVENTORY2.QuantityAllocated").GetMetadata("condition"));
+        Assert.Equal("ELSE", AssertEdge($"expr:{Udf}.InventoryData.QuantityOnHand", RelationType.DerivedFrom, "column:dbo.INVENTORY2.QuantityOnHand").GetMetadata("condition"));
+    }
+
+    [Fact]
+    public void Typed_and_table_valued_parameter_readers_bind_system_parameters()
+    {
+        // DECLARE @UseParentLocation BIT = (SELECT * FROM dbo.AF_GetSystemParameterValueListString('Pick_UseParentLocation'))
+        var parent = AssertEdge($"udf:{Udf}", RelationType.UsesParameter, "param:Pick_UseParentLocation");
+        Assert.Equal("@UseParentLocation", parent.GetMetadata("variable"));
+        Assert.Equal("declare|filter", parent.GetMetadata("usage"));
+
+        // DECLARE @ChildContainerCalssID INT = (SELECT dbo.AF_GetSystemParameterValueint('ChildContainerCalssID'))
+        var child = AssertEdge($"udf:{Udf}", RelationType.UsesParameter, "param:ChildContainerCalssID");
+        Assert.Equal("@ChildContainerCalssID", child.GetMetadata("variable"));
+        Assert.Equal("declare|filter", child.GetMetadata("usage"));
+
+        Assert.Equal(NodeStatus.Known, Node("param:Pick_UseParentLocation").Status);
+        foreach (var table in new[] { "INVENTORY2", "CONTAINER", "PRODUCT", "PRODUCT_GROUP", "DET2_ILG_ProductDeliveryMethod", "WAREHOUSE_LOCATION_RELATION" })
+        {
+            AssertEdge($"udf:{Udf}", RelationType.Reads, $"table:dbo.{table}");
+        }
     }
 
     [Fact]

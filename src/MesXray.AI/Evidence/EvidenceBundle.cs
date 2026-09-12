@@ -15,6 +15,9 @@ public enum EvidenceKind
 /// <summary>One thing the AI may cite. <see cref="Id"/> is the only handle it is allowed to use.</summary>
 public sealed record EvidenceItem(string Id, EvidenceKind Kind, string Text, string? NodeId = null, string? Scope = null, JsonElement? Value = null);
 
+/// <summary>A branch of a hop that yields a constant instead of a source column (<c>RETURN 1000</c>, <c>THEN ''</c>).</summary>
+public sealed record LiteralBranch(string? Condition, string Literal, string LineageId);
+
 /// <summary>Flattened Trace Source hop for the model and the rule engine.</summary>
 public sealed record HopSummary(
     int Depth,
@@ -30,7 +33,14 @@ public sealed record HopSummary(
     string? ContainerNodeId,
     IReadOnlyList<string> RuntimeEvidenceIds,
     IReadOnlyList<string> RuntimeValueTexts,
-    bool IsRepeat);
+    bool IsRepeat)
+{
+    /// <summary>Scanner notes about the hop, e.g. how a local variable used in the expression is assigned.</summary>
+    public IReadOnlyList<string> Notes { get; init; } = [];
+
+    /// <summary>Constant-valued branches of this hop (lineage records without a source field).</summary>
+    public IReadOnlyList<LiteralBranch> LiteralBranches { get; init; } = [];
+}
 
 /// <summary>
 /// Everything the AI Investigator is allowed to reason from: the focus node, the upstream hops, cite-able evidence
@@ -58,8 +68,14 @@ public sealed record EvidenceBundle
 
     public IReadOnlyList<EvidenceItem> Items { get; init; } = [];
 
-    /// <summary>Unknown/Pending nodes reached while tracing, with the reason.</summary>
+    /// <summary>Static gaps: Unknown/Pending nodes reached while tracing, with the reason. Any entry forces Need More Evidence.</summary>
     public IReadOnlyList<string> Unknowns { get; init; } = [];
+
+    /// <summary>
+    /// Runtime details of this trace that were not captured (e.g. values computed inside SQL Server). They are reported
+    /// but do not make an evidenced lineage unknown.
+    /// </summary>
+    public IReadOnlyList<string> RuntimeNotes { get; init; } = [];
 
     /// <summary>Ids that may be cited (equal to <see cref="Items"/> ids, optionally narrowed by the caller).</summary>
     public required IReadOnlySet<string> AllowedEvidenceIds { get; init; }

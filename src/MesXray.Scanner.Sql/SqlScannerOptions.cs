@@ -7,10 +7,16 @@ namespace MesXray.Scanner.Sql;
 /// </summary>
 public sealed class SqlScannerOptions
 {
-    /// <summary>Scalar functions whose first string-literal argument is a system parameter name.</summary>
+    /// <summary>
+    /// Functions whose first string-literal argument is a system parameter name: scalar readers
+    /// (<c>dbo.AF_GetSystemParameterValue('X', @Facility)</c>) and typed variants, including the table-valued form
+    /// (<c>SELECT * FROM dbo.AF_GetSystemParameterValueListString('X') [bit]</c>).
+    /// </summary>
     public IReadOnlyList<string> SystemParameterFunctions { get; init; } =
     [
         "AF_GetSystemParameterValue",
+        "AF_GetSystemParameterValueint",
+        "AF_GetSystemParameterValueListString",
         "AF_GetSystemParameter",
         "AF_GetParameterValue",
         "AF_GetSystemParam",
@@ -31,6 +37,12 @@ public sealed class SqlScannerOptions
 
     /// <summary>Maximum characters kept for expression display names.</summary>
     public int MaxExpressionNameLength { get; init; } = 80;
+
+    /// <summary>
+    /// Maximum characters of an <c>IF</c> predicate kept as the branch condition of statements it guards
+    /// (<c>IF EXISTS (...) RETURN 1000</c>). EXISTS predicates are abbreviated to their tables and literal comparisons first.
+    /// </summary>
+    public int MaxBranchConditionLength { get; init; } = 120;
 
     public static SqlScannerOptions Default { get; } = new();
 }

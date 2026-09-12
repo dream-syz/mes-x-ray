@@ -159,17 +159,27 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
             facts.Add(new KnownFact(p.FactLink(child.Name, hop.ViaRelation!.Value, p.Qualify(hop), hop.RuntimeValueTexts), ids));
         }
 
-        // 4. Expressions and branches.
+        // 4. Expressions and branches. Hops are depth-first, so the outermost expression is examined first; once a
+        //    hypothesis explains the observed value, deeper ISNULL/constant coincidences are not repeated.
+        var valueExplained = false;
+        var rowTablesToCheck = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var expr in bundle.HopsOfType(NodeType.Expression))
         {
             var produced = parentOf.GetValueOrDefault(expr);
             var producedName = produced?.Name ?? p.DefaultProducedName;
             var exprIds = Cite([expr.NodeId, expr.ViaEdgeId, produced?.NodeId]);
-            facts.Add(new KnownFact(p.FactExpression(producedName, expr.Expression ?? expr.Name), exprIds));
+            var expression = expr.Expression ?? expr.Name;
+            facts.Add(new KnownFact(p.FactExpression(producedName, expression), exprIds));
+
+            foreach (var note in expr.Notes.Where(n => expression.Contains(VariableOf(n), StringComparison.OrdinalIgnoreCase)))
+            {
+                facts.Add(new KnownFact(p.FactLocalVariable(producedName, note), exprIds));
+            }
 
             var children = childrenOf.GetValueOrDefault(expr) ?? [];
-            var control = children.FirstOrDefault(c => c.ViaRelation == RelationType.ControlledBy);
+            var controls = children.Where(c => c.ViaRelation == RelationType.ControlledBy).ToList();
             var branches = children.Where(c => c.Condition is not null).GroupBy(c => c.Condition!, StringComparer.Ordinal).ToList();
+            var constants = produced?.LiteralBranches ?? [];
 
             foreach (var branch in branches)
             {
@@ -177,46 +187,79 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
                 facts.Add(new KnownFact(p.FactBranchUses(branch.Key, producedName, branch.Select(p.Qualify)), ids));
             }
 
-            if (control is not null)
+            foreach (var constant in constants)
             {
-                var controlIds = Cite([control.ViaEdgeId, control.NodeId], control.RuntimeEvidenceIds);
-                var controlValue = control.RuntimeValueTexts.Count > 0 ? control.RuntimeValueTexts[0] : null;
-                if (controlValue is null)
-                {
-                    facts.Add(new KnownFact(p.FactBranchUndecided(producedName, control.Name), controlIds));
-                    nextSteps.Add(p.NextReadParameter(control.Name));
-                    continue;
-                }
-
-                facts.Add(new KnownFact(p.FactControlledBy(producedName, control.Name, ValueOf(controlValue)), controlIds));
-                var active = ActiveBranch(ValueOf(controlValue), branches.Select(b => b.Key).ToList());
-                if (active is null)
-                {
-                    hypotheses.Add(new Hypothesis(p.HypothesisNoBranchMatches(producedName, control.Name, ValueOf(controlValue)), HypothesisStatus.Unverified, p.CheckCompareCase));
-                    continue;
-                }
-
-                var activeSources = branches.First(b => b.Key == active).ToList();
-                var activeIds = Cite(activeSources.Select(s => s.ViaEdgeId), activeSources.Select(s => s.NodeId), control.RuntimeEvidenceIds);
-                facts.Add(new KnownFact(p.FactActiveBranch(active, activeSources.Select(p.Qualify)), activeIds));
-                steps.Add(p.StepEvaluatedCase(producedName, control.Name, ValueOf(controlValue)));
-
-                var unknownSources = activeSources.Where(s => s.Status != NodeStatus.Known).ToList();
-                foreach (var unknown in unknownSources)
-                {
-                    hypotheses.Add(new Hypothesis(
-                        p.HypothesisUnknownSource(producedName, unknown.Name),
-                        HypothesisStatus.Unverified,
-                        p.CheckImportDefinition(unknown.Name),
-                        Cite([unknown.NodeId])));
-                    nextSteps.Add(p.NextScanDefinition(unknown.Name));
-                }
-
-                if (investigate)
-                {
-                    AddIsNullHypothesis(p, root, activeSources, producedName, hypotheses, Cite);
-                }
+                var ids = Cite([constant.LineageId, produced?.NodeId, expr.NodeId]);
+                facts.Add(new KnownFact(p.FactBranchConstant(constant.Condition ?? "ELSE", producedName, constant.Literal), ids));
             }
+
+            if (controls.Count == 0)
+            {
+                continue;
+            }
+
+            var control = controls.FirstOrDefault(c => c.RuntimeValueTexts.Count > 0);
+            if (control is null)
+            {
+                // The branch condition is not observed in this trace: say what decides it and how to check it.
+                var controlIds = Cite(controls.Select(c => c.ViaEdgeId), controls.Select(c => c.NodeId));
+                foreach (var parameter in controls.Where(c => c.Type == NodeType.SystemParameter).DistinctBy(c => c.NodeId))
+                {
+                    facts.Add(new KnownFact(p.FactBranchUndecided(producedName, parameter.Name), controlIds));
+                    nextSteps.Add(p.NextReadParameter(parameter.Name));
+                }
+
+                var columns = controls.Where(c => c.Type == NodeType.Column).DistinctBy(c => c.NodeId).ToList();
+                if (columns.Count > 0)
+                {
+                    facts.Add(new KnownFact(p.FactBranchDependsOnRows(producedName, columns.Select(p.Qualify)), controlIds));
+                    rowTablesToCheck.UnionWith(TablesOf(columns));
+                }
+
+                if (investigate && !valueExplained)
+                {
+                    valueExplained |= AddConstantHypothesis(p, root, constants, producedName, hypotheses, Cite);
+                    valueExplained |= AddIsNullHypothesis(p, root, children.Where(c => c.Condition is not null).ToList(), producedName, hypotheses, Cite, childrenOf);
+                }
+
+                continue;
+            }
+
+            var controlIdsDecided = Cite([control.ViaEdgeId, control.NodeId], control.RuntimeEvidenceIds);
+            var controlValue = ValueOf(control.RuntimeValueTexts[0]);
+            facts.Add(new KnownFact(p.FactControlledBy(producedName, control.Name, controlValue), controlIdsDecided));
+            var active = ActiveBranch(controlValue, branches.Select(b => b.Key).ToList());
+            if (active is null)
+            {
+                hypotheses.Add(new Hypothesis(p.HypothesisNoBranchMatches(producedName, control.Name, controlValue), HypothesisStatus.Unverified, p.CheckCompareCase));
+                continue;
+            }
+
+            var activeSources = branches.First(b => b.Key == active).ToList();
+            var activeIds = Cite(activeSources.Select(s => s.ViaEdgeId), activeSources.Select(s => s.NodeId), control.RuntimeEvidenceIds);
+            facts.Add(new KnownFact(p.FactActiveBranch(active, activeSources.Select(p.Qualify)), activeIds));
+            steps.Add(p.StepEvaluatedCase(producedName, control.Name, controlValue));
+
+            var unknownSources = activeSources.Where(s => s.Status != NodeStatus.Known).ToList();
+            foreach (var unknown in unknownSources)
+            {
+                hypotheses.Add(new Hypothesis(
+                    p.HypothesisUnknownSource(producedName, unknown.Name),
+                    HypothesisStatus.Unverified,
+                    p.CheckImportDefinition(unknown.Name),
+                    Cite([unknown.NodeId])));
+                nextSteps.Add(p.NextScanDefinition(unknown.Name));
+            }
+
+            if (investigate && !valueExplained)
+            {
+                valueExplained |= AddIsNullHypothesis(p, root, activeSources, producedName, hypotheses, Cite, childrenOf);
+            }
+        }
+
+        if (rowTablesToCheck.Count > 0)
+        {
+            nextSteps.Add(p.NextCheckRows(rowTablesToCheck.ToList()));
         }
 
         // 5. Base columns and parameters.
@@ -240,7 +283,8 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
             facts.Add(new KnownFact(p.FactParameterFeeds(parameter.Name, value, parentOf.GetValueOrDefault(parameter)?.Name ?? focus.Name), ids));
         }
 
-        // 6. Unknowns & pending.
+        // 6. Unknowns & pending. Static gaps (unscanned definitions) and a missing runtime value for an investigation
+        //    force Need More Evidence; runtime details that were merely not captured are reported but do not.
         var unknownHops = bundle.Hops.Where(h => h.Status != NodeStatus.Known && !h.IsRepeat).DistinctBy(h => h.NodeId).ToList();
         foreach (var pending in unknownHops.Where(h => h.Status == NodeStatus.Pending))
         {
@@ -248,6 +292,7 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
         }
 
         var unknowns = bundle.Unknowns.ToList();
+        var runtimeNotes = bundle.RuntimeNotes.ToList();
         steps.Add(p.StepCheckedDefinitions(unknownHops.Count));
 
         if (investigate && root.RuntimeEvidenceIds.Count == 0 && bundle.TraceId is not null)
@@ -256,10 +301,12 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
             nextSteps.Add(p.NextRunTracePickOrder);
         }
 
-        var confidence = Confidence(unknownHops.Count, facts.Count, root.RuntimeEvidenceIds.Count > 0);
-        var verdict = unknowns.Count == 0 && unknownHops.Count == 0 ? ExplainVerdict.Known : ExplainVerdict.NeedMoreEvidence;
+        var staticGap = unknowns.Count > 0 || unknownHops.Count > 0;
+        var hypothesisOnly = !staticGap && hypotheses.Count > 0;
+        var verdict = staticGap || hypotheses.Count > 0 ? ExplainVerdict.NeedMoreEvidence : ExplainVerdict.Known;
+        var confidence = Confidence(unknownHops.Count, facts.Count, root.RuntimeEvidenceIds.Count > 0, runtimeNotes.Count, hypothesisOnly);
 
-        var summary = p.Summary(bundle.Focus.Name, facts.Count, OriginatingProcedure(bundle), root.RuntimeValueTexts, verdict, unknownHops.Select(h => h.Name));
+        var summary = p.Summary(bundle.Focus.Name, facts.Count, OriginatingProcedure(bundle), root.RuntimeValueTexts, verdict, unknownHops.Select(h => h.Name), hypothesisOnly, runtimeNotes.Count);
 
         return new Explanation
         {
@@ -267,7 +314,7 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
             Steps = steps,
             KnownFacts = facts,
             Hypotheses = hypotheses,
-            Unknowns = unknowns.Distinct(StringComparer.Ordinal).ToList(),
+            Unknowns = unknowns.Concat(runtimeNotes).Distinct(StringComparer.Ordinal).ToList(),
             NextSteps = nextSteps.Distinct(StringComparer.Ordinal).ToList(),
             Confidence = confidence,
             Verdict = verdict,
@@ -283,26 +330,81 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
         return sp ?? bundle.Hops.Where(h => h.ContainerNodeId is not null && h.ContainerNodeId.StartsWith("sp:", StringComparison.Ordinal)).Select(h => NodeIds.OwnerKeyOf(h.ContainerNodeId!)).FirstOrDefault();
     }
 
-    private static void AddIsNullHypothesis(InvestigatorPhrases p, HopSummary root, List<HopSummary> activeSources, string producedName, List<Hypothesis> hypotheses, Func<IEnumerable<string?>[], string[]> cite)
+    /// <summary>
+    /// The observed value equals the ISNULL default of a candidate branch: the inner value was probably NULL. Skipped when
+    /// the branch wraps a scanned function (its own RETURN expression is examined instead), because such a function
+    /// cannot be shown to return NULL from the outside.
+    /// </summary>
+    private static bool AddIsNullHypothesis(
+        InvestigatorPhrases p,
+        HopSummary root,
+        List<HopSummary> candidates,
+        string producedName,
+        List<Hypothesis> hypotheses,
+        Func<IEnumerable<string?>[], string[]> cite,
+        Dictionary<HopSummary, List<HopSummary>> childrenOf)
     {
         var observed = root.RuntimeValueTexts.Select(ValueOf).FirstOrDefault();
         if (observed is null)
         {
-            return;
+            return false;
         }
 
-        foreach (var expression in activeSources.Select(s => s.Expression).Where(e => e is not null).Distinct(StringComparer.Ordinal))
+        if (candidates.Any(s => s.Type == NodeType.Function && s.Status == NodeStatus.Known && childrenOf.ContainsKey(s)))
+        {
+            return false;
+        }
+
+        var added = false;
+        foreach (var expression in candidates.Select(s => s.Expression).Where(e => e is not null).Distinct(StringComparer.Ordinal))
         {
             var match = IsNullDefault().Match(expression!);
             if (match.Success && string.Equals(match.Groups["default"].Value.Trim(), observed, StringComparison.OrdinalIgnoreCase))
             {
+                var sources = candidates.Where(s => s.Expression == expression).ToList();
                 hypotheses.Add(new Hypothesis(
                     p.HypothesisIsNullFallback(producedName, observed, expression!),
                     HypothesisStatus.Unverified,
                     p.CheckInnerFunction,
-                    cite([root.RuntimeEvidenceIds, activeSources.Select(s => s.NodeId)])));
+                    cite([root.RuntimeEvidenceIds, sources.Select(s => s.NodeId), sources.Select(s => s.ViaEdgeId)])));
+                added = true;
             }
         }
+
+        return added;
+    }
+
+    /// <summary>The observed value equals a constant branch (<c>RETURN 1000</c>): its condition probably held.</summary>
+    private static bool AddConstantHypothesis(InvestigatorPhrases p, HopSummary root, IReadOnlyList<LiteralBranch> constants, string producedName, List<Hypothesis> hypotheses, Func<IEnumerable<string?>[], string[]> cite)
+    {
+        var observed = root.RuntimeValueTexts.Select(ValueOf).FirstOrDefault();
+        if (observed is null)
+        {
+            return false;
+        }
+
+        var added = false;
+        foreach (var constant in constants.Where(c => c.Condition is not null && ValuesEqual(c.Literal, observed)))
+        {
+            hypotheses.Add(new Hypothesis(
+                p.HypothesisConstantBranch(producedName, observed, constant.Condition!),
+                HypothesisStatus.Unverified,
+                p.CheckConstantBranch(constant.Condition!),
+                cite([root.RuntimeEvidenceIds, [constant.LineageId]])));
+            added = true;
+        }
+
+        return added;
+    }
+
+    private static IReadOnlyList<string> TablesOf(IEnumerable<HopSummary> columns)
+        => columns.Select(c => c.ContainerNodeId).Where(t => t is not null).Distinct(StringComparer.Ordinal).Select(t => NodeIds.OwnerKeyOf(t!)).ToList();
+
+    /// <summary>The variable a scanner note is about: <c>@UseQuantityAllocated</c> in <c>@UseQuantityAllocated = 0 -> 1 WHEN ...</c>.</summary>
+    private static string VariableOf(string note)
+    {
+        var idx = note.IndexOf(' ', StringComparison.Ordinal);
+        return idx < 0 ? note : note[..idx];
     }
 
     private static string? ActiveBranch(string value, IReadOnlyList<string> conditions)
@@ -356,14 +458,18 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
         return raw.Trim().Trim('"');
     }
 
-    private static double Confidence(int unknownCount, int factCount, bool hasRuntime)
+    /// <summary>
+    /// 0.95 minus 0.2 per Unknown/Pending hop, 0.05 without a runtime value, 0.05 per runtime detail that was not
+    /// captured, and 0.1 when the observed value rests on an unverified hypothesis; clamped to [0.3, 0.95].
+    /// </summary>
+    private static double Confidence(int unknownCount, int factCount, bool hasRuntime, int runtimeNotes, bool hypothesisOnly)
     {
         if (factCount == 0)
         {
             return 0.0;
         }
 
-        var confidence = 0.95 - 0.2 * unknownCount - (hasRuntime ? 0.0 : 0.05);
+        var confidence = 0.95 - 0.2 * unknownCount - (hasRuntime ? 0.0 : 0.05) - 0.05 * runtimeNotes - (hypothesisOnly ? 0.1 : 0.0);
         return Math.Round(Math.Clamp(confidence, 0.3, 0.95), 2);
     }
 

@@ -52,10 +52,34 @@
       "name": "AF_Pick_GetAvailableQuantity",
       "qualifiedName": "dbo.AF_Pick_GetAvailableQuantity",
       "layer": "data",
-      "status": "unknown",
-      "description": "WMS available quantity for a product at a warehouse location. Definition not provided yet (P0 input).",
+      "status": "known",
+      "description": "WMS available quantity for a product at a warehouse location. Returns 1000 for LVP delivery; otherwise sums INVENTORY2 rows with InventoryStatus = 1 (QuantityAllocated for ECU products and LVS_MPA / SLFR_MPA / LVS_LINE / SLFR_LINE delivery methods, QuantityOnHand otherwise), adding the parent location when Pick_UseParentLocation = 1 and skipping child containers (ChildContainerCalssID).",
       "metadata": {
-        "reason": "Function definition not scanned. Need More Evidence before explaining AvailableQuantity when WMS_Enabled = 1."
+        "provided": "2026-09-12 (P0 input of design doc section 16)"
+      }
+    },
+    {
+      "id": "udf:dbo.AF_GetSystemParameterValueint",
+      "type": "function",
+      "name": "AF_GetSystemParameterValueint",
+      "qualifiedName": "dbo.AF_GetSystemParameterValueint",
+      "layer": "data",
+      "status": "pending",
+      "description": "Reads one system parameter as INT (typed variant of AF_GetSystemParameterValue). The scanner maps every call to the SystemParameter node, so the definition is not needed for lineage.",
+      "metadata": {
+        "reason": "Pending: helper reader; not requested because parameter reads are resolved by name."
+      }
+    },
+    {
+      "id": "udf:dbo.AF_GetSystemParameterValueListString",
+      "type": "function",
+      "name": "AF_GetSystemParameterValueListString",
+      "qualifiedName": "dbo.AF_GetSystemParameterValueListString",
+      "layer": "data",
+      "status": "pending",
+      "description": "Table-valued reader returning one system parameter as a list of strings. The scanner maps every call to the SystemParameter node, so the definition is not needed for lineage.",
+      "metadata": {
+        "reason": "Pending: helper reader; not requested because parameter reads are resolved by name."
       }
     },
     {
@@ -88,7 +112,15 @@
       "name": "ChildContainerCalssID",
       "layer": "config",
       "status": "known",
-      "description": "Container class used to select child containers when listing inventory locations (name kept as spelled in production)."
+      "description": "Container class used to select child containers when listing inventory locations and to exclude them from the WMS available quantity (name kept as spelled in production)."
+    },
+    {
+      "id": "param:Pick_UseParentLocation",
+      "type": "systemParameter",
+      "name": "Pick_UseParentLocation",
+      "layer": "config",
+      "status": "known",
+      "description": "1 = AF_Pick_GetAvailableQuantity also counts the inventory of the parent warehouse location (WAREHOUSE_LOCATION_RELATION). 0 = only the requested location."
     },
     {
       "id": "param:WL_Description_Replacement",

@@ -38,10 +38,14 @@ public sealed class EvidenceBindingValidator
             facts.Add(invalid.Count == 0 ? fact : fact with { EvidenceIds = valid });
         }
 
-        var unknowns = candidate.Unknowns.Concat(bundle.Unknowns).Distinct(StringComparer.Ordinal).ToList();
+        // Static gaps (unscanned definitions, unknowns claimed by the model) and surviving hypotheses keep the verdict
+        // at Need More Evidence; runtime details that were merely not captured are reported but do not.
+        var unknowns = candidate.Unknowns.Concat(bundle.Unknowns).Concat(bundle.RuntimeNotes).Distinct(StringComparer.Ordinal).ToList();
+        var staticGap = unknowns.Except(bundle.RuntimeNotes, StringComparer.Ordinal).Any()
+                        || bundle.Hops.Any(h => h.Status != Domain.Graph.NodeStatus.Known);
         var verdict = facts.Count == 0
             ? ExplainVerdict.Unknown
-            : unknowns.Count > 0 || bundle.Hops.Any(h => h.Status != Domain.Graph.NodeStatus.Known)
+            : staticGap || hypotheses.Count > 0
                 ? ExplainVerdict.NeedMoreEvidence
                 : ExplainVerdict.Known;
 

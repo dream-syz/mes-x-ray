@@ -19,7 +19,10 @@ public enum SourceRole
     Partition,
 }
 
-/// <summary>One upstream input of an expression, with the branch condition under which it applies.</summary>
+/// <summary>
+/// One upstream input of an expression, with the branch condition under which it applies. <see cref="Variable"/> names
+/// the local variable through which the input arrived (<c>@UseQuantityAllocated</c>), when it did not come directly.
+/// </summary>
 public sealed record SourceRef(
     string NodeId,
     NodeType NodeType,
@@ -28,7 +31,8 @@ public sealed record SourceRef(
     SourceRole Role,
     string? Condition,
     TransformType Transform,
-    string? BranchExpression);
+    string? BranchExpression,
+    string? Variable = null);
 
 /// <summary>Services the collector needs from the enclosing object analyzer.</summary>
 public interface ISourceResolver
@@ -39,6 +43,13 @@ public interface ISourceResolver
     /// <summary>Resolves a local variable to the system parameter it was loaded from, if any.</summary>
     string? ParameterBoundTo(string variableName);
 
+    /// <summary>
+    /// Inputs of a plain local variable (not bound to a system parameter): the sources of every expression assigned to
+    /// it plus, as control inputs, the columns of the <c>IF</c> predicates that guarded those assignments. Empty when
+    /// the variable is a parameter of the object or was never assigned from data.
+    /// </summary>
+    IEnumerable<SourceRef> LocalVariableSources(string variableName, CollectContext context);
+
     /// <summary>Returns the system parameter read by this call (e.g. AF_GetSystemParameterValue('WMS_Enabled')), if it is one.</summary>
     string? SystemParameterRead(FunctionCall call);
 
@@ -47,6 +58,12 @@ public interface ISourceResolver
 
     /// <summary>Called when the collector meets a scalar subquery so its tables can be registered as reads.</summary>
     IEnumerable<SourceRef> CollectSubquery(ScalarSubquery subquery, CollectContext context);
+
+    /// <summary>
+    /// Called for <c>EXISTS (subquery)</c>: the columns compared in the subquery's WHERE decide the predicate, so they
+    /// are reported (with the caller's role, normally control); the tables are registered as reads.
+    /// </summary>
+    IEnumerable<SourceRef> CollectPredicateSubquery(ScalarSubquery subquery, CollectContext context);
 }
 
 /// <summary>Immutable traversal state.</summary>
@@ -327,6 +344,14 @@ public sealed class ExpressionSourceCollector
                     Visit(v, ctx, sources);
                 }
 
+                if (inPredicate.Subquery is not null)
+                {
+                    sources.AddRange(_resolver.CollectSubquery(inPredicate.Subquery, ctx));
+                }
+
+                return;
+            case ExistsPredicate exists:
+                sources.AddRange(_resolver.CollectPredicateSubquery(exists.Subquery, ctx));
                 return;
             case LikePredicate like:
                 Visit(like.FirstExpression, ctx, sources);
@@ -354,7 +379,9 @@ public sealed class ExpressionSourceCollector
         var parameter = _resolver.ParameterBoundTo(variableName);
         if (parameter is null)
         {
-            return; // SP parameter or plain local variable: not a lineage source.
+            // Object parameter (nothing to say) or plain local variable: expand what was assigned to it.
+            sources.AddRange(_resolver.LocalVariableSources(variableName, ctx));
+            return;
         }
 
         sources.Add(new SourceRef(NodeIds.SystemParameter(parameter), NodeType.SystemParameter, parameter, null,

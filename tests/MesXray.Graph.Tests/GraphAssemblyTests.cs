@@ -52,11 +52,21 @@ public sealed class GraphAssemblyTests : IClassFixture<AssembledGraphFixture>
     public void Curated_statuses_and_descriptions_survive_the_merge()
     {
         var udf = _fx.Store.FindNode("udf:dbo.AF_Pick_GetAvailableQuantity")!;
-        Assert.Equal(NodeStatus.Unknown, udf.Status);
-        Assert.False(string.IsNullOrEmpty(udf.Description));
+        Assert.Equal(NodeStatus.Known, udf.Status);
+        Assert.Contains("LVP", udf.Description, StringComparison.Ordinal);
+        Assert.Equal("scalarFunction", udf.GetMetadata("objectType"));
+
+        // Helper readers are curated as Pending (deliberately not requested), overriding the scanner's Unknown placeholder.
+        var reader = _fx.Store.FindNode("udf:dbo.AF_GetSystemParameterValueint")!;
+        Assert.Equal(NodeStatus.Pending, reader.Status);
+        Assert.Contains("not needed", reader.Description, StringComparison.Ordinal);
 
         var pending = _fx.Store.FindNode("method:PickOrderService.GetStorageBin")!;
         Assert.Equal(NodeStatus.Pending, pending.Status);
+
+        var parentLocation = _fx.Store.FindNode("param:Pick_UseParentLocation")!;
+        Assert.Equal(NodeStatus.Known, parentLocation.Status);
+        Assert.Equal("@UseParentLocation", _fx.Store.OutEdges("udf:dbo.AF_Pick_GetAvailableQuantity").Single(e => e.ToNodeId == "param:Pick_UseParentLocation").GetMetadata("variable"));
 
         var parameter = _fx.Store.FindNode("param:WMS_Enabled")!;
         Assert.Equal(NodeStatus.Known, parameter.Status);

@@ -320,7 +320,7 @@ print_scenes() {
   printf '   1  Architecture: the whole chain behind the 0     %s\n' "$(scene_url "")"
   printf '   2  Trace Source availableQuantity (static)        %s\n' "$(scene_url "field=availableQuantity")"
   printf '   3  Live Trace PICK0843858 / T12288                %s\n' "$(scene_url "order=PICK0843858&field=availableQuantity&scope=T12288")"
-  printf '   4  Investigate: UDF unknown, Need More Evidence   %s\n' "$(scene_url "order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1")"
+  printf '   4  Investigate inside the UDF: hypothesis for 0   %s\n' "$(scene_url "order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1")"
   printf '   5  Impact of WMS_Enabled                          %s\n' "$(scene_url "impact=param:WMS_Enabled")"
   printf '   6  storageBin: FIFO / STRING_AGG lineage          %s\n' "$(scene_url "order=PICK0843858&field=json:pickOrderRows.pickStorageBin.storageBin&scope=T12288")"
   printf '   6b destinationWagon storageBin: Pending by design %s\n' "$(scene_url "field=json:pickOrderRows.destinationWagon.storageBin.location&explain=1")"

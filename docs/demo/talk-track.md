@@ -14,7 +14,7 @@
 | 1 | 0:00 - 0:30 | 架构全图 | `/?lang=zh` |
 | 2 | 0:30 - 1:15 | 溯源 availableQuantity | `/?field=availableQuantity&lang=zh` |
 | 3 | 1:15 - 2:00 | 实时追踪 | `/?order=PICK0843858&field=availableQuantity&scope=T12288&lang=zh` |
-| 4 | 2:00 - 3:15 | 调查：UDF 未知 | `/?order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1&lang=zh` |
+| 4 | 2:00 - 3:15 | 调查：进到 UDF 内部 | `/?order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1&lang=zh` |
 | 5 | 3:15 - 3:55 | WMS_Enabled 的影响 | `/?impact=param:WMS_Enabled&lang=zh` |
 | 6 | 3:55 - 4:35 | storageBin 血缘 | `/?order=PICK0843858&field=json:pickOrderRows.pickStorageBin.storageBin&scope=T12288&lang=zh` |
 | 7 | 4:35 - 5:00 | 回到全图 | `/?lang=zh` |
@@ -29,10 +29,10 @@
 
 **台词**：
 > 拣货单详情页上，T12288 这一行的 Available Quantity 显示 0。就一个 0。
-> 这张图是这个 0 背后的全部链路：Web VP 页面、EBBA API、Controller、Service、Query，四个存储过程，下面是表、UDF 和系统参数。一共 183 个节点、307 条边，都是扫描器从代码和 SQL 里读出来的，不是手画的。
+> 这张图是这个 0 背后的全部链路：Web VP 页面、EBBA API、Controller、Service、Query，四个存储过程和一个函数，下面是表、CTE 和系统参数。一共 210 个节点、363 条边，都是扫描器从代码和 SQL 里读出来的，不是手画的。
 > 今天要回答的问题只有一个：这个 0 是怎么来的，我们能不能证明它。
 
-**看点**：右下角状态栏「183 节点、307 边、86 血缘、4 未知、2 待补充、3 已知缺口」。未知和缺口是公开的，不藏。
+**看点**：右下角状态栏「210 节点、363 边、113 血缘、3 未知、4 待补充、2 已知缺口」。未知和缺口是公开的，不藏。
 
 ## 阶段 2（0:30 - 1:15）溯源：Web 到 SQL
 
@@ -44,8 +44,9 @@
 > 一次点击。上面的执行路径是静态调用链：页面、`GET /cwp/v1/picking/pickOrder`、`GetPickOrder`、`GetPickOrderDetails`、`GetPickOrderRows`、Query 层的 `GetPickOrderRows`、存储过程 `AP_Pick_GetPickOrderRows`，最后到函数 `AF_Pick_GetAvailableQuantity`。
 > 下面是上游血缘：JSON 字段序列化自属性，Dapper 按名映射自结果列，结果列是中间列 `TotalAvailableQuantity` 的别名，它是 `SUM(MR.AvailableQuantity)`，再往上是一个 CASE 表达式。
 > 这个 CASE 按 `@WMS_Enabled` 分两支：0 走本地库存乘 10，1 走 UDF。两条分支的条件都在图上，参数是一条「受控于」的边。
+> 血缘没有在函数调用处停下。`AF_Pick_GetAvailableQuantity` 的脱敏定义已经在 fixture 里，扫描器沿它的 RETURN 继续追：`IF EXISTS (... DeliveryMethod = 'LVP' ...) RETURN 1000 ELSE RETURN ISNULL(SUM(QuantityOnHand), 0)`，再进到 `InventoryData` 这个 CTE 的 CASE，最后落到 `INVENTORY2.QuantityOnHand` / `QuantityAllocated`、`PRODUCT_GROUP.Group_` 和 `DET2_ILG_ProductDeliveryMethod` 的几列。
 
-**看点**：图沿数据流方向排布，自下而上；边上的标签就是关系类型。图上最下面那个虚线框是 UDF，已经标了「未知：需要更多证据」。
+**看点**：图沿数据流方向排布，自下而上；边上的标签就是关系类型。图的下半部分整块都是函数内部：RETURN 表达式、CTE、CASE、基表列。这条链上没有虚线框。
 
 ## 阶段 3（1:15 - 2:00）实时追踪：把真实取值叠上去
 
@@ -60,21 +61,23 @@
 
 **看点**：节点上的取值芯片带 `T12288:` 前缀，表示是行级作用域；顶部 FIXTURE 徽标和 trace id 一直可见，说明数据来自哪里。
 
-## 阶段 4（2:00 - 3:15）调查：缺定义就说缺定义
+## 阶段 4（2:00 - 3:15）调查：假设就标假设
 
 ![调查](04-investigate.png)
 
 **动作**：点右上角 **调查**。
 
 **台词**：
-> 让调查器解释这个 0。结论是「需要更多证据」，置信度 75%，12 条事实，32 项证据，2 个未知。
-> 先看可审计步骤：定位焦点节点、叠加 trace、重建执行路径、遍历 11 跳、按 `WMS_Enabled = 1` 评估 CASE 条件、检查定义。这是它做了什么，不是它怎么想的。
-> 每条事实后面都挂着证据芯片：`ev-067` 是运行时证据，其余是节点 id 和边 id。点任何一个芯片，图和检视器都会跳到对应节点。
-> 关键的一条：本次 trace 生效的分支是 `@WMS_Enabled = 1`，走 `AF_Pick_GetAvailableQuantity`。
-> 然后是两条假设，状态都是「未验证」：一，AvailableQuantity 在这个 UDF 内部决定，而它的定义我们没有，所以观测值无法继续验证；二，观测到的 0 可能只是 `ISNULL(..., 0)` 的回退值，也就是函数根本没返回行。每条假设都附了一个只读的核查步骤。
-> 这就是这个项目对 AI 的定位：没有证据就不下结论，说不知道，然后告诉你下一步去拿什么证据。
+> 让调查器解释这个 0。结论是「需要更多证据」，置信度 80%，21 条事实，63 项引用证据，1 个未知。
+> 先看可审计步骤：定位焦点节点、叠加 trace、重建执行路径、遍历 23 跳、按 `WMS_Enabled = 1` 评估 CASE 条件、检查定义（路径上 0 个未知节点）。这是它做了什么，不是它怎么想的。
+> 每条事实后面都挂着证据芯片：`ev-068` 是运行时证据，其余是节点 id、边 id 和血缘 id。点任何一个芯片，图和检视器都会跳到对应节点。
+> 关键的几条：本次 trace 生效的分支是 `@WMS_Enabled = 1`，走 `AF_Pick_GetAvailableQuantity`；函数内部，`EXISTS (... 'LVP' ...)` 那一支返回常量 1000，否则返回 `ISNULL(SUM(QuantityOnHand), 0)`；走哪一支取决于 `DET2_ILG_ProductDeliveryMethod` 的几列行数据，trace 里没有捕获这些行；局部变量 `@UseQuantityAllocated` 什么时候从 0 变成 1 也写成了事实。
+> 然后是唯一一条假设，状态「未验证」：`AF_Pick_GetAvailableQuantity` 等于 `ISNULL(SUM(QuantityOnHand), 0)` 的回退值 0，内层很可能是 NULL，也就是 `INVENTORY2` 里没有匹配的库存行。附带一个只读的核查步骤：在 TEST 环境查这个物料在 `DET2_ILG_ProductDeliveryMethod`、`PRODUCT`、`PRODUCT_GROUP` 里的行。
+> 注意区分：同一个字段点「解释」，结论是「已知」、90%，因为静态血缘每一跳都有证据；点「调查」问「为什么是 0」，答案依赖一条假设，所以是「需要更多证据」。这就是这个项目对 AI 的定位：证据说到哪里，结论就到哪里，剩下的标成假设并告诉你下一步去拿什么证据。
 
 **看点**：审计块里有 provider、model、prompt 版本、时间戳和引用的证据 id 数。切一下 EN / 中文：句子换语言，证据 id、取值和结论完全不变。
+
+对照备用：物料 T55102 的 availableQuantity 是 1000，把 scope 换成 T55102 再调查，假设变成「等于条件 `EXISTS (... DeliveryMethod = 'LVP' ...)` 成立时返回的常量 1000」；T40917 的 860 既不是常量也不是 ISNULL 回退值，结论直接是「已知」。
 
 问答备用：
 - 「这是 LLM 吗？」演示默认是离线规则引擎（provider `rules`）。接 OpenAI 兼容模型时，输出走同一个证据绑定校验器：引用了不存在证据的句子会被降级为假设，没有任何证据支撑的回答会被判为 Unknown。
@@ -107,7 +110,7 @@
 
 ![目的车库位](06b-destination-wagon.png)
 
-> 这条链停在 `GetStorageBin`，它标的是「待补充」：这个存储过程按站点配置、运行时决定，第一版故意没扫。X-Ray 明确地停在这里，而不是猜一个。
+> 这条链停在 `GetStorageBin`，它标的是「待补充」：这个存储过程按站点配置、运行时决定，第一版故意没扫。X-Ray 明确地停在这里，而不是猜一个。拿到 `AF_Pick_GetAvailableQuantity` 定义之前，availableQuantity 那条链就是这个样子。
 
 ## 阶段 7（4:35 - 5:00）回到全图
 
@@ -116,14 +119,14 @@
 **台词**：
 > 回到全图收尾。X-Ray 不是一个聊天框。扫描器把代码和 SQL 变成证据图，运行时 trace 把真实取值绑到图上，AI 只允许基于这些证据说话，说不出来就说 Unknown。
 > 状态栏一直写着我们的边界：只读、白名单工具、不执行 SQL、不改参数和数据。
-> 下一步很具体：拿到 `AF_Pick_GetAvailableQuantity` 的脱敏定义并重新扫描，今天这个「需要更多证据」就会变成「已知」，这是我们要给业务看的第一个闭环。
+> 第一个闭环已经走通：上周 `AF_Pick_GetAvailableQuantity` 还是图上的虚线框，拿到脱敏定义、重新扫描之后，availableQuantity 的溯源从「需要更多证据」变成了「已知」，多出来的 27 个节点、56 条边没有一条是手画的。下一步同样具体：目的车的 `GetStorageBin` 存储过程，还有多拣货单流程。
 
 ---
 
 ## 彩排检查单
 
 1. `scripts/xray.sh status`：api 与 web 都是 healthy；记下 web 的实际端口。
-2. 打开场景 4 的深链：应看到「需要更多证据」、75%、12 条事实。这一条通了，说明 API、图、runtime fixture、调查器全部在线。
+2. 打开场景 4 的深链：应看到「需要更多证据」、80%、21 条事实、1 条假设。这一条通了，说明 API、图、runtime fixture、调查器全部在线。
 3. 浏览器缩放 100%，窗口不小于 1280 宽；1400 以下会隐藏副标题和图例，这是设计行为。
 4. 语言：演示前决定用 EN 还是中文，并在浏览器里切一次，让它记住。
 5. 关掉其它占端口的项目不是必须的，脚本会自己换端口；但不要在演示中途重启它们。

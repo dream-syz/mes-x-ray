@@ -27,14 +27,41 @@ public sealed partial class EvidenceBundleBuilder
 
         var items = new Dictionary<string, EvidenceItem>(StringComparer.Ordinal);
         var nodesById = new Dictionary<string, Node>(StringComparer.Ordinal);
+        var lineageIndex = _graph.Lineages.ToDictionary(l => l.Id, StringComparer.Ordinal);
+        var literalsByOutput = _graph.Lineages
+            .Where(l => l.SourceFieldId is null && l.TransformType == TransformType.Literal && l.Expression is not null)
+            .GroupBy(l => l.OutputFieldId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.OrderBy(l => l.Id, StringComparer.Ordinal).ToList(), StringComparer.Ordinal);
 
-        foreach (var hop in hops)
+        for (var i = 0; i < hops.Count; i++)
         {
+            var hop = hops[i];
             var node = _graph.FindNode(hop.NodeId);
-            if (node is not null)
+            if (node is null)
             {
-                nodesById[node.Id] = node;
-                items.TryAdd(node.Id, new EvidenceItem(node.Id, EvidenceKind.Node, DescribeNode(node), node.Id));
+                continue;
+            }
+
+            nodesById[node.Id] = node;
+            items.TryAdd(node.Id, new EvidenceItem(node.Id, EvidenceKind.Node, DescribeNode(node), node.Id));
+
+            // Scanner notes (local variable assignments) and constant branches travel with the hop so the investigator
+            // can state them as facts; the literal lineage records become cite-able evidence.
+            var notes = node.GetMetadata("variables") is { } variables
+                ? variables.Split("; ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                : [];
+            var literals = literalsByOutput.TryGetValue(hop.NodeId, out var lineages)
+                ? lineages.Select(l => new LiteralBranch(l.Condition, l.Expression!, l.Id)).ToList()
+                : [];
+            foreach (var literal in literals)
+            {
+                var lineage = lineageIndex[literal.LineageId];
+                items.TryAdd(lineage.Id, new EvidenceItem(lineage.Id, EvidenceKind.Lineage, DescribeLineage(lineage), lineage.OutputFieldId));
+            }
+
+            if (notes.Length > 0 || literals.Count > 0)
+            {
+                hops[i] = hop with { Notes = notes, LiteralBranches = literals };
             }
         }
 
@@ -45,7 +72,6 @@ public sealed partial class EvidenceBundleBuilder
         }
 
         var edgeIndex = _graph.Edges.ToDictionary(e => e.Id, StringComparer.Ordinal);
-        var lineageIndex = _graph.Lineages.ToDictionary(l => l.Id, StringComparer.Ordinal);
         var runtimeIndex = runtime?.Evidence.ToDictionary(e => e.Id, StringComparer.Ordinal) ?? new Dictionary<string, RuntimeEvidence>(StringComparer.Ordinal);
 
         foreach (var id in trace.EvidenceIds)
@@ -94,6 +120,7 @@ public sealed partial class EvidenceBundleBuilder
         }
 
         var unknowns = trace.Unknowns.Select(u => $"{u.Name} ({u.NodeId}): {u.Reason}").ToList();
+        var runtimeNotes = new List<string>();
         if (runtime is not null)
         {
             // Runtime notes are trace-wide; only those naming an object on this field's path belong to this explanation.
@@ -103,7 +130,7 @@ public sealed partial class EvidenceBundleBuilder
                 .Where(n => !string.IsNullOrWhiteSpace(n))
                 .Select(n => n[(n.LastIndexOf('.') + 1)..])
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            unknowns.AddRange(runtime.Unknowns.Where(u => Identifiers().Matches(u).Any(m => leafNames.Contains(m.Value))));
+            runtimeNotes.AddRange(runtime.Unknowns.Where(u => Identifiers().Matches(u).Any(m => leafNames.Contains(m.Value))));
         }
 
         return new EvidenceBundle
@@ -118,6 +145,7 @@ public sealed partial class EvidenceBundleBuilder
             Hops = hops,
             Items = ordered,
             Unknowns = unknowns.Distinct(StringComparer.Ordinal).ToList(),
+            RuntimeNotes = runtimeNotes.Distinct(StringComparer.Ordinal).ToList(),
             AllowedEvidenceIds = allowed,
         };
     }

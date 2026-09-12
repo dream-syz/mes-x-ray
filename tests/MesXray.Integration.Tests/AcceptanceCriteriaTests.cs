@@ -36,8 +36,11 @@ public sealed class AcceptanceCriteriaTests : IClassFixture<XRayApiFactory>
 
         var overview = await GetJson($"{Api}/cases/pick-order-details");
         Assert.Equal(8, overview["keyFields"]!.AsArray().Count);
-        Assert.Contains(overview["knownGaps"]!.AsArray(), g => g!["nodeId"]!.GetValue<string>() == "udf:dbo.AF_Pick_GetAvailableQuantity" && g["status"]!.GetValue<string>() == "unknown");
+        // The P0 gap (AF_Pick_GetAvailableQuantity definition) was delivered and scanned: it is no longer a known gap.
+        Assert.DoesNotContain(overview["knownGaps"]!.AsArray(), g => g!["nodeId"]!.GetValue<string>() == "udf:dbo.AF_Pick_GetAvailableQuantity");
+        Assert.Equal(2, overview["knownGaps"]!.AsArray().Count);
         Assert.Contains(overview["knownGaps"]!.AsArray(), g => g!["nodeId"]!.GetValue<string>() == "method:PickOrderService.GetStorageBin" && g["status"]!.GetValue<string>() == "pending");
+        Assert.Contains(overview["systemParameters"]!.AsArray(), p => p!["id"]!.GetValue<string>() == "param:Pick_UseParentLocation");
         Assert.Contains("trace_pick_order", overview["allowedTools"]!.AsArray().Select(t => t!.GetValue<string>()));
         Assert.Contains("execute_arbitrary_sql", overview["forbiddenTools"]!.AsArray().Select(t => t!.GetValue<string>()));
         Assert.Contains(overview["traces"]!.AsArray(), t => t!["traceId"]!.GetValue<string>() == "trace-demo-001");
@@ -68,10 +71,15 @@ public sealed class AcceptanceCriteriaTests : IClassFixture<XRayApiFactory>
         var hops = Flatten(trace["root"]!).ToList();
         var udf = Assert.Single(hops, h => h["nodeId"]!.GetValue<string>() == "udf:dbo.AF_Pick_GetAvailableQuantity");
         Assert.Equal("@WMS_Enabled = 1", udf["condition"]!.GetValue<string>());
-        Assert.Equal("unknown", udf["status"]!.GetValue<string>());
+        Assert.Equal("known", udf["status"]!.GetValue<string>());
         var tableColumn = Assert.Single(hops, h => h["nodeId"]!.GetValue<string>() == "column:dbo.AT_PICK_PRINT_QUEUE_DETAIL.Quantity" && h["condition"] is not null);
         Assert.Equal("@WMS_Enabled = 0", tableColumn["condition"]!.GetValue<string>());
         Assert.Contains(hops, h => h["nodeId"]!.GetValue<string>() == "param:WMS_Enabled" && h["viaRelation"]!.GetValue<string>() == "controlledBy");
+
+        // The WMS branch continues through the function's RETURN expression down to INVENTORY2.
+        Assert.Contains(hops, h => h["nodeId"]!.GetValue<string>() == "expr:dbo.AF_Pick_GetAvailableQuantity.$.RETURN");
+        Assert.Contains(hops, h => h["nodeId"]!.GetValue<string>() == "column:dbo.INVENTORY2.QuantityOnHand");
+        Assert.Empty(trace["unknowns"]!.AsArray());
 
         var path = trace["executionPath"]!.AsArray().Select(n => n!["id"]!.GetValue<string>()).ToList();
         Assert.Equal("page:WebVP.PickOrderDetails", path[0]);
@@ -82,7 +90,7 @@ public sealed class AcceptanceCriteriaTests : IClassFixture<XRayApiFactory>
     }
 
     [Fact]
-    public async Task AC03_explain_binds_facts_to_evidence_and_names_the_unknown_udf()
+    public async Task AC03_explain_binds_facts_to_evidence_and_follows_the_udf_to_its_base_columns()
     {
         var response = await _client.PostAsync($"{Api}/ai/explain", XRayApiFactory.Json(new
         {
@@ -95,7 +103,8 @@ public sealed class AcceptanceCriteriaTests : IClassFixture<XRayApiFactory>
         var body = await XRayApiFactory.ReadJsonAsync(response);
         var explanation = body["explanation"]!;
 
-        Assert.Equal("needMoreEvidence", explanation["verdict"]!.GetValue<string>());
+        // The whole static lineage is evidenced; only a runtime detail (values computed inside SQL Server) is missing.
+        Assert.Equal("known", explanation["verdict"]!.GetValue<string>());
         var evidenceIds = body["evidence"]!.AsArray().Select(e => e!["id"]!.GetValue<string>()).ToHashSet(StringComparer.Ordinal);
         var facts = explanation["knownFacts"]!.AsArray();
         Assert.NotEmpty(facts);
@@ -107,9 +116,12 @@ public sealed class AcceptanceCriteriaTests : IClassFixture<XRayApiFactory>
         }
 
         Assert.Contains(facts, f => f!["text"]!.GetValue<string>().Contains("WMS_Enabled = 1", StringComparison.Ordinal));
-        Assert.Contains(explanation["hypotheses"]!.AsArray(), h => h!["text"]!.GetValue<string>().Contains("AF_Pick_GetAvailableQuantity", StringComparison.Ordinal) && h["status"]!.GetValue<string>() == "unverified");
-        Assert.Contains(explanation["unknowns"]!.AsArray(), u => u!.GetValue<string>().Contains("AF_Pick_GetAvailableQuantity", StringComparison.Ordinal));
-        Assert.InRange(explanation["confidence"]!.GetValue<double>(), 0.3, 0.9);
+        Assert.Contains(facts, f => f!["text"]!.GetValue<string>().Contains("AF_Pick_GetAvailableQuantity = IF EXISTS", StringComparison.Ordinal));
+        Assert.Contains(facts, f => f!["text"]!.GetValue<string>().Contains("returns the constant 1000", StringComparison.Ordinal));
+        Assert.Contains(facts, f => f!["text"]!.GetValue<string>().Contains("dbo.INVENTORY2.QuantityOnHand", StringComparison.Ordinal));
+        Assert.Empty(explanation["hypotheses"]!.AsArray());
+        Assert.Contains(explanation["unknowns"]!.AsArray(), u => u!.GetValue<string>().Contains("evaluated inside SQL Server", StringComparison.Ordinal));
+        Assert.InRange(explanation["confidence"]!.GetValue<double>(), 0.85, 0.95);
 
         var audit = explanation["audit"]!;
         Assert.Equal("rules", audit["provider"]!.GetValue<string>());
@@ -150,6 +162,31 @@ public sealed class AcceptanceCriteriaTests : IClassFixture<XRayApiFactory>
         Assert.Equal(HttpStatusCode.OK, summary.StatusCode);
         var body = await XRayApiFactory.ReadJsonAsync(summary);
         Assert.Contains("WMS_Enabled", body["explanation"]!["summary"]!.GetValue<string>(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AC03_investigate_explains_zero_with_a_hypothesis_bound_to_the_function_return_expression()
+    {
+        var response = await _client.PostAsync($"{Api}/ai/investigate", XRayApiFactory.Json(new
+        {
+            traceId = "trace-demo-001",
+            focusNodeId = "json:pickOrderRows.availableQuantity",
+            scope = "T12288",
+            question = "Why is Available Quantity 0?",
+            language = "zh-CN",
+        }));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await XRayApiFactory.ReadJsonAsync(response);
+        var explanation = body["explanation"]!;
+
+        Assert.Equal("needMoreEvidence", explanation["verdict"]!.GetValue<string>());
+        Assert.Contains("需要更多证据", explanation["summary"]!.GetValue<string>(), StringComparison.Ordinal);
+        var hypothesis = Assert.Single(explanation["hypotheses"]!.AsArray());
+        Assert.Contains("ISNULL(SUM(QuantityOnHand), 0)", hypothesis!["text"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Equal("unverified", hypothesis["status"]!.GetValue<string>());
+        Assert.Contains("TEST", hypothesis["suggestedCheck"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Contains(explanation["nextSteps"]!.AsArray(), s => s!.GetValue<string>().Contains("dbo.DET2_ILG_ProductDeliveryMethod", StringComparison.Ordinal));
+        Assert.InRange(explanation["confidence"]!.GetValue<double>(), 0.7, 0.85);
     }
 
     [Fact]

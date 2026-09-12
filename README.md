@@ -57,7 +57,7 @@ To serve the UI from the API instead of Vite: `npm run build` in `src/MesXray.We
 | Evidence Graph model: `Node`, `Edge`, `FieldLineage`, `RuntimeEvidence`, stable node ids, relation direction semantics | `src/MesXray.Domain` | §5, ADR-0001 |
 | In-memory graph store with JSON snapshots, FillGaps/Authoritative merge, Dapper by-name linker, Trace Source, Impact Analysis, architecture view | `src/MesXray.Graph` | §3, §6, ADR-0003 |
 | .NET scanner (Roslyn): endpoints, call chains, Dapper SP calls, models/properties, enrichment methods, branches, JSON serialization | `src/MesXray.Scanner.DotNet` | §4.1 |
-| SQL scanner (ScriptDom): procedures/functions, tables, aliases, CTE/temp tables, CASE branch conditions, aggregates, UDF calls, system-parameter reads | `src/MesXray.Scanner.Sql` | §4.2 |
+| SQL scanner (ScriptDom): procedures/functions, tables, aliases, CTE/temp tables, CASE branch conditions, aggregates, UDF calls, system-parameter reads (scalar and table-valued readers), scalar-function `RETURN` lineage with `IF` guards, local-variable tracking | `src/MesXray.Scanner.Sql` | §4.2 |
 | Runtime adapter (fixture-backed), evidence binder, **read-only tool gateway** with whitelist, argument validation, audit log and redaction | `src/MesXray.Runtime` | §4.3, §10 |
 | AI investigator: evidence bundle, rule-based investigator (offline default), OpenAI-compatible structured-output client, **evidence-binding validator** | `src/MesXray.AI` | §7.1, §9 |
 | HTTP API (minimal APIs, OpenAPI, ProblemDetails) | `src/MesXray.Api` | §7 |
@@ -133,7 +133,19 @@ The API builds the graph at startup (`GraphBootstrapper`), in this order:
 3. `linker` — Dapper by-name mapping of SP result columns to model properties
 4. `ground-truth` and `manual-overrides` — merged **Authoritative** (curation wins)
 
-`GET /api/xray/health` returns the build report (nodes/edges/lineage per step, unknown/pending counts, linker result). With the shipped fixture the scanners reproduce every ground-truth edge except the manually curated `page → API` call, and the linker maps all 18 result columns.
+`GET /api/xray/health` returns the build report (nodes/edges/lineage per step, unknown/pending counts, linker result). With the shipped fixture the scanners reproduce every ground-truth edge except the manually curated `page → API` call, and the linker maps all 18 result columns; the merged graph has 210 nodes, 363 edges and 113 lineage records.
+
+### Known gaps of the shipped case
+
+`case.json` lists what is deliberately missing, and the case overview reports each gap's live status:
+
+| Gap | Priority | Status |
+|---|---|---|
+| `dbo.AF_Pick_GetAvailableQuantity` definition (design §16, P0) | delivered 2026-09-12 | **Closed**: the sanitized definition is in `source/sql`; `availableQuantity` traces through the function's `RETURN` expression, the `InventoryData` CTE and the `DET2_ILG_ProductDeliveryMethod` / `PRODUCT_GROUP` / `INVENTORY2` columns. Explain is *Known*; Investigate of the observed `0` yields a hypothesis (ISNULL fallback of `SUM(QuantityOnHand)`) and *Need More Evidence*. |
+| `PickOrderService.GetStorageBin` / site-configured storage-bin procedure | P1 | Pending: `destinationWagon.storageBin.location` stops there explicitly |
+| `dbo.AP_Pick_GetMultiPickOrderRows` (multi pick order flow) | P2 | Unknown: out of scope for the first iteration |
+
+The typed parameter readers `AF_GetSystemParameterValueint` / `AF_GetSystemParameterValueListString` are curated as Pending: every call is resolved by parameter name, so their bodies are not needed for lineage.
 
 Modes (`XRay:Graph:Mode`): `ScanAndCurate` (default), `ScanOnly` (measure the scanners alone), `CuratedOnly` (no scanning). Set `XRay:Graph:ExportPath` to write the merged snapshot as JSON — commit it next to the fixture to version the expected graph.
 
@@ -146,7 +158,7 @@ Follow [`docs/demo-script.md`](docs/demo-script.md) (design §14); [`docs/demo/t
 | 1 Architecture: the whole chain behind the 0 | `/` |
 | 2 Trace Source `availableQuantity` (static) | `/?field=availableQuantity` |
 | 3 Live Trace PICK0843858 / T12288 | `/?order=PICK0843858&field=availableQuantity&scope=T12288` |
-| 4 Investigate: UDF unknown, Need More Evidence | `/?order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1` |
+| 4 Investigate inside the UDF: hypothesis for the 0, Need More Evidence | `/?order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1` |
 | 5 `WMS_Enabled` impact back to the page | `/?impact=param:WMS_Enabled` |
 | 6 FIFO / `STRING_AGG` storage-bin lineage | `/?order=PICK0843858&field=json:pickOrderRows.pickStorageBin.storageBin&scope=T12288` |
 | 6b Pending by design: destination wagon storage bin | `/?field=json:pickOrderRows.destinationWagon.storageBin.location&explain=1` |
@@ -194,10 +206,12 @@ dotnet run --project src/MesXray.Api
 
 The LLM receives only the evidence bundle (never a connection string, host or raw response) and must answer with a JSON schema. Every fact is re-validated by `EvidenceBindingValidator`: facts citing ids outside the bundle are downgraded to unverified hypotheses, and the verdict/confidence are capped. If the endpoint is unavailable the API falls back to the rule engine and records that in `audit.note`.
 
+Verdict rules (rule engine and validator alike): an Unknown/Pending definition on the path, or an unknown claimed by the model, gives *Need More Evidence*; an observed value that is only explained by an unverified hypothesis (an `ISNULL` default, a constant branch such as `RETURN 1000`) also gives *Need More Evidence*; runtime details that were merely not captured (values computed inside SQL Server) are reported under `unknowns` but do not make an evidenced lineage unknown. *Known* means every hop is backed by scanned code or runtime evidence.
+
 ## Tests and CI
 
 ```bash
-dotnet test MesXray.slnx          # 85 tests: scanners, graph, runtime gateway, AI, integration (AC-01 … AC-08)
+dotnet test MesXray.slnx          # 95 tests: scanners, graph, runtime gateway, AI, integration (AC-01 … AC-08)
 cd src/MesXray.Web && npm run build   # tsc --noEmit + vite build
 ```
 

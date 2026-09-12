@@ -22,7 +22,10 @@
 # EVIDENCE BUNDLE (the only ids you may cite)
 {{evidence}}
 
-# Known unknowns
+# Known unknowns (static gaps: Unknown / Pending definitions on the path)
 {{unknowns}}
+
+# Runtime details not captured in this trace (report them; they do not make an evidenced lineage unknown)
+{{runtimeNotes}}
 
 Respond with JSON matching the provided schema.

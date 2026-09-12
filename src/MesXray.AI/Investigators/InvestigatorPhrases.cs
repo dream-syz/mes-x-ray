@@ -67,9 +67,15 @@ internal abstract class InvestigatorPhrases
     public abstract string StepCheckedDefinitions(int count);
     public abstract string UnknownNoRuntimeValue(string name, string traceId, string? scope);
     public abstract string NextRunTracePickOrder { get; }
-    public abstract string Summary(string focus, int factCount, string? spName, IReadOnlyList<string> observed, ExplainVerdict verdict, IEnumerable<string> unknownNames);
+    public abstract string Summary(string focus, int factCount, string? spName, IReadOnlyList<string> observed, ExplainVerdict verdict, IEnumerable<string> unknownNames, bool hypothesisOnly, int runtimeNotes);
     public abstract string HypothesisIsNullFallback(string produced, string observed, string expression);
     public abstract string CheckInnerFunction { get; }
+    public abstract string FactLocalVariable(string produced, string note);
+    public abstract string FactBranchConstant(string condition, string produced, string literal);
+    public abstract string FactBranchDependsOnRows(string produced, IEnumerable<string> columns);
+    public abstract string NextCheckRows(IReadOnlyList<string> tables);
+    public abstract string HypothesisConstantBranch(string produced, string observed, string condition);
+    public abstract string CheckConstantBranch(string condition);
     public abstract string Qualify(HopSummary hop);
 }
 
@@ -120,20 +126,29 @@ internal sealed class EnglishPhrases : InvestigatorPhrases
     public override string UnknownNoRuntimeValue(string name, string traceId, string? scope) => $"No runtime value for {name} in trace {traceId}{(scope is null ? string.Empty : $" / {scope}")}.";
     public override string NextRunTracePickOrder => "Run trace_pick_order for the order to capture the value.";
 
-    public override string Summary(string focus, int factCount, string? spName, IReadOnlyList<string> observed, ExplainVerdict verdict, IEnumerable<string> unknownNames)
+    public override string Summary(string focus, int factCount, string? spName, IReadOnlyList<string> observed, ExplainVerdict verdict, IEnumerable<string> unknownNames, bool hypothesisOnly, int runtimeNotes)
     {
         var value = observed.Count > 0 ? $" Observed {string.Join("; ", observed)}." : string.Empty;
         var origin = spName is null ? string.Empty : $" It originates in {spName}.";
+        var names = unknownNames.ToList();
         var caveat = verdict switch
         {
-            ExplainVerdict.Known => " Every hop is backed by scanned code or runtime evidence.",
-            _ => $" Need more evidence: {string.Join(", ", unknownNames)}.",
+            ExplainVerdict.Known => " Every hop is backed by scanned code or runtime evidence." + (runtimeNotes > 0 ? $" {runtimeNotes} runtime detail(s) of this trace were not captured (see unknowns)." : string.Empty),
+            _ when hypothesisOnly => " Need more evidence: the observed value is explained by an unverified hypothesis (see next steps).",
+            _ when names.Count > 0 => $" Need more evidence: {string.Join(", ", names)}.",
+            _ => " Need more evidence (see unknowns).",
         };
         return $"{focus} is explained through {factCount} evidence-backed fact(s).{origin}{value}{caveat}";
     }
 
-    public override string HypothesisIsNullFallback(string produced, string observed, string expression) => $"{produced} equals the ISNULL fallback {observed} of `{expression}`; the inner value may have been NULL (e.g. the function returned no row).";
-    public override string CheckInnerFunction => "Execute the inner function for this material in TEST and check whether it returns NULL.";
+    public override string HypothesisIsNullFallback(string produced, string observed, string expression) => $"{produced} equals the ISNULL fallback {observed} of `{expression}`; the inner value was probably NULL (no matching row, or the inner function returned NULL).";
+    public override string CheckInnerFunction => "Evaluate the inner expression for this material in TEST (read-only) and check whether it is NULL.";
+    public override string FactLocalVariable(string produced, string note) => $"Local variable in {produced}: {note}.";
+    public override string FactBranchConstant(string condition, string produced, string literal) => $"Branch `{condition}` of {produced} returns the constant {literal}.";
+    public override string FactBranchDependsOnRows(string produced, IEnumerable<string> columns) => $"Which branch of {produced} applies depends on row data: {string.Join(", ", columns)}; these rows were not captured in the trace.";
+    public override string NextCheckRows(IReadOnlyList<string> tables) => $"Query {string.Join(", ", tables)} for this material in TEST (read-only) to determine the active branch.";
+    public override string HypothesisConstantBranch(string produced, string observed, string condition) => $"{produced} equals the constant {observed} returned when {condition}; that condition probably held for this material.";
+    public override string CheckConstantBranch(string condition) => $"Evaluate `{condition}` for this material in TEST (read-only) and confirm it holds.";
 
     public override string Qualify(HopSummary hop)
     {
@@ -227,20 +242,29 @@ internal sealed class ChinesePhrases : InvestigatorPhrases
     public override string UnknownNoRuntimeValue(string name, string traceId, string? scope) => $"trace {traceId}{(scope is null ? string.Empty : $" / {scope}")} 中没有 {name} 的运行时取值。";
     public override string NextRunTracePickOrder => "对该订单执行 trace_pick_order 以捕获取值。";
 
-    public override string Summary(string focus, int factCount, string? spName, IReadOnlyList<string> observed, ExplainVerdict verdict, IEnumerable<string> unknownNames)
+    public override string Summary(string focus, int factCount, string? spName, IReadOnlyList<string> observed, ExplainVerdict verdict, IEnumerable<string> unknownNames, bool hypothesisOnly, int runtimeNotes)
     {
         var value = observed.Count > 0 ? $"观测值 {string.Join("；", observed)}。" : string.Empty;
         var origin = spName is null ? string.Empty : $"它来源于 {spName}。";
+        var names = unknownNames.ToList();
         var caveat = verdict switch
         {
-            ExplainVerdict.Known => "每一跳都有已扫描代码或运行时证据支撑。",
-            _ => $"需要更多证据：{string.Join("、", unknownNames)}。",
+            ExplainVerdict.Known => "每一跳都有已扫描代码或运行时证据支撑。" + (runtimeNotes > 0 ? $"本次 trace 有 {runtimeNotes} 项运行时细节未被捕获（见未知项）。" : string.Empty),
+            _ when hypothesisOnly => "需要更多证据：观测值的解释仍是未验证的假设（见下一步）。",
+            _ when names.Count > 0 => $"需要更多证据：{string.Join("、", names)}。",
+            _ => "需要更多证据（见未知项）。",
         };
         return $"{focus} 由 {factCount} 条有证据支撑的事实解释。{origin}{value}{caveat}";
     }
 
-    public override string HypothesisIsNullFallback(string produced, string observed, string expression) => $"{produced} 等于 `{expression}` 中 ISNULL 的回退值 {observed}；内层取值可能为 NULL（例如函数没有返回任何行）。";
-    public override string CheckInnerFunction => "在 TEST 环境对该物料执行内层函数，检查其是否返回 NULL。";
+    public override string HypothesisIsNullFallback(string produced, string observed, string expression) => $"{produced} 等于 `{expression}` 中 ISNULL 的回退值 {observed}；内层取值很可能为 NULL（没有匹配的行，或内层函数返回 NULL）。";
+    public override string CheckInnerFunction => "在 TEST 环境只读执行内层表达式，检查该物料下其是否为 NULL。";
+    public override string FactLocalVariable(string produced, string note) => $"{produced} 中的局部变量：{note}。";
+    public override string FactBranchConstant(string condition, string produced, string literal) => $"{produced} 的分支 `{condition}` 返回常量 {literal}。";
+    public override string FactBranchDependsOnRows(string produced, IEnumerable<string> columns) => $"{produced} 走哪个分支取决于行数据：{string.Join("、", columns)}；trace 中未捕获这些行。";
+    public override string NextCheckRows(IReadOnlyList<string> tables) => $"在 TEST 环境只读查询 {string.Join("、", tables)} 中该物料的行，以确定生效分支。";
+    public override string HypothesisConstantBranch(string produced, string observed, string condition) => $"{produced} 等于条件 {condition} 成立时返回的常量 {observed}；该条件很可能对此物料成立。";
+    public override string CheckConstantBranch(string condition) => $"在 TEST 环境只读验证 `{condition}` 对该物料是否成立。";
 
     public override string Qualify(HopSummary hop)
     {

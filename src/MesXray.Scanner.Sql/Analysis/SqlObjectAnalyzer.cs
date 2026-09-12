@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using MesXray.Domain.Graph;
 using MesXray.Domain.Scanning;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
@@ -11,12 +12,18 @@ namespace MesXray.Scanner.Sql.Analysis;
 /// <item>SP -> READS -> Table, SP -> CALLS_FUNCTION -> Function, SP -> EXECUTES_SP -> SP.</item>
 /// <item>Result columns, CTE/temp/derived-table columns, and for every projected expression: EXPR -> PRODUCES -> column,
 /// EXPR -> DERIVED_FROM / COMPUTED_BY / CONTROLLED_BY -> sources, plus <see cref="FieldLineage"/> records per branch.</item>
+/// <item>For scalar functions: the value of every <c>RETURN</c> as one expression (<c>expr:owner.$.RETURN</c>) that
+/// PRODUCES the function node, with <c>IF</c> predicates as branch conditions and local variables expanded to what
+/// was assigned to them (see <see cref="EmitReturnValue"/>).</item>
 /// </list>
 /// Anything the rules cannot resolve is reported as a diagnostic and left out - never guessed.
 /// </summary>
-public sealed class SqlObjectAnalyzer : ISourceResolver
+public sealed partial class SqlObjectAnalyzer : ISourceResolver
 {
     public const string ResultRelation = "$";
+
+    /// <summary>Column name used for the return value of a scalar function (<c>expr:dbo.AF_X.$.RETURN</c>).</summary>
+    public const string ReturnColumn = "RETURN";
 
     private readonly SnapshotBuilder _builder;
     private readonly SqlScannerOptions _options;
@@ -27,9 +34,21 @@ public sealed class SqlObjectAnalyzer : ISourceResolver
     private readonly Dictionary<string, RelationInfo> _relations = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (string Variable, SortedSet<string> Usages)> _parameterUsage = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _writeTargets = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<Assignment>> _locals = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<BranchFrame> _branches = [];
+    private readonly List<ReturnSite> _returns = [];
     private readonly ExpressionSourceCollector _collector;
     private QueryScope _currentScope = new();
     private int _resultSets;
+
+    /// <summary>An <c>IF</c> whose body is being visited: its label and the columns its predicate reads.</summary>
+    private sealed record BranchFrame(string Label, IReadOnlyList<SourceRef> Guards);
+
+    /// <summary>One value assigned to a local variable (DECLARE ... =, SET, SELECT @x = ...).</summary>
+    private sealed record Assignment(string Expression, string? Condition, IReadOnlyList<SourceRef> Sources, bool IsLiteral, IReadOnlyList<SourceRef> Guards);
+
+    /// <summary>One <c>RETURN expr</c> of a scalar function.</summary>
+    private sealed record ReturnSite(string Expression, string? Condition, IReadOnlyList<SourceRef> Sources, bool IsLiteral, IReadOnlyList<SourceRef> Guards, TSqlFragment Fragment);
 
     public SqlObjectAnalyzer(SnapshotBuilder builder, SqlScannerOptions options, string file, string ownerId, string ownerKey)
     {
@@ -79,6 +98,7 @@ public sealed class SqlObjectAnalyzer : ISourceResolver
                     if (element.Value is not null)
                     {
                         BindVariable(element.VariableName.Value, element.Value);
+                        RecordAssignment(element.VariableName.Value, element.Value);
                     }
                 }
 
@@ -86,6 +106,7 @@ public sealed class SqlObjectAnalyzer : ISourceResolver
 
             case SetVariableStatement set:
                 BindVariable(set.Variable.Name, set.Expression);
+                RecordAssignment(set.Variable.Name, set.Expression);
                 break;
 
             case SelectStatement select:
@@ -101,13 +122,27 @@ public sealed class SqlObjectAnalyzer : ISourceResolver
                 break;
 
             case IfStatement ifStatement:
-                RecordFilterVariables(ifStatement.Predicate, "branch");
-                VisitStatement(ifStatement.ThenStatement);
-                if (ifStatement.ElseStatement is not null)
                 {
-                    VisitStatement(ifStatement.ElseStatement);
+                    RecordFilterVariables(ifStatement.Predicate, "branch");
+                    var guards = CollectControl(ifStatement.Predicate);
+                    var label = BranchLabel(ifStatement.Predicate);
+
+                    _branches.Add(new BranchFrame(label, guards));
+                    VisitStatement(ifStatement.ThenStatement);
+                    _branches.RemoveAt(_branches.Count - 1);
+
+                    if (ifStatement.ElseStatement is not null)
+                    {
+                        _branches.Add(new BranchFrame($"NOT ({label})", guards));
+                        VisitStatement(ifStatement.ElseStatement);
+                        _branches.RemoveAt(_branches.Count - 1);
+                    }
+
+                    break;
                 }
 
+            case ReturnStatement { Expression: not null } returnStatement:
+                RecordReturn(returnStatement);
                 break;
 
             case BeginEndBlockStatement block:
@@ -414,6 +449,17 @@ public sealed class SqlObjectAnalyzer : ISourceResolver
         // 2. Anything else is an expression node that produces the column.
         var exprId = NodeIds.Expression(_ownerKey, target.Name, name);
         var kind = ExpressionSourceCollector.Kind(item.Expression);
+        var exprMetadata = new Dictionary<string, string>
+        {
+            ["expression"] = expressionText,
+            ["kind"] = kind,
+            ["produces"] = columnId,
+        };
+        if (DescribeLocals([expressionText]) is { } locals)
+        {
+            exprMetadata["variables"] = locals;
+        }
+
         _builder.Define(new Node
         {
             Id = exprId,
@@ -422,12 +468,7 @@ public sealed class SqlObjectAnalyzer : ISourceResolver
             QualifiedName = $"{_ownerKey}.{target.Name}.{name} = {expressionText}",
             Layer = Layer.Data,
             Source = new SourceLocation(_file, item.StartLine, SqlText.EndLine(item)),
-            Metadata = new Dictionary<string, string>
-            {
-                ["expression"] = expressionText,
-                ["kind"] = kind,
-                ["produces"] = columnId,
-            },
+            Metadata = exprMetadata,
         });
         var produces = _builder.Link(exprId, RelationType.Produces, columnId, EvidenceType.SqlParser, evidence);
 
@@ -487,6 +528,11 @@ public sealed class SqlObjectAnalyzer : ISourceResolver
                 }
 
                 NoteParameterUsage(first.Name, variable, first.Role == SourceRole.Control ? "branch" : "value");
+            }
+            else if (group.Select(s => s.Variable).FirstOrDefault(v => v is not null) is { } local)
+            {
+                // The source reached this expression through a local variable (SET @x = ... inside an IF).
+                metadata["variable"] = local;
             }
 
             var edge = _builder.Link(exprId, group.Key.Relation, first.NodeId, EvidenceType.SqlParser, evidence, 1.0, metadata);
@@ -607,8 +653,319 @@ public sealed class SqlObjectAnalyzer : ISourceResolver
                 else
                 {
                     BindVariable(element.Variable.Name, element.Expression);
+                    RecordAssignment(element.Variable.Name, element.Expression);
                 }
             }
+        }
+        finally
+        {
+            _currentScope = previousScope;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Local variables, IF branches and RETURN (scalar functions)
+    // ------------------------------------------------------------------
+
+    /// <summary>Remembers what <paramref name="variableName"/> was assigned, with the IF predicates that guarded it.</summary>
+    private void RecordAssignment(string variableName, ScalarExpression value)
+    {
+        var isLiteral = ExpressionSourceCollector.IsLiteral(value);
+        var sources = isLiteral ? [] : _collector.Collect(value);
+        if (!_locals.TryGetValue(variableName, out var assignments))
+        {
+            assignments = [];
+            _locals[variableName] = assignments;
+        }
+
+        assignments.Add(new Assignment(SqlText.Of(value), CurrentCondition(), sources, isLiteral, CurrentGuards()));
+    }
+
+    private void RecordReturn(ReturnStatement statement)
+    {
+        var expression = statement.Expression!;
+        var isLiteral = ExpressionSourceCollector.IsLiteral(expression);
+        var sources = isLiteral ? [] : _collector.Collect(expression);
+        _returns.Add(new ReturnSite(SqlText.Of(expression), CurrentCondition(), sources, isLiteral, CurrentGuards(), statement));
+    }
+
+    private string? CurrentCondition()
+        => _branches.Count == 0 ? null : string.Join(" AND ", _branches.Select(b => b.Label));
+
+    private IReadOnlyList<SourceRef> CurrentGuards()
+        => _branches.SelectMany(b => b.Guards).ToList();
+
+    /// <summary>Columns and parameters a predicate reads, as control inputs (tables inside EXISTS are registered as reads).</summary>
+    private List<SourceRef> CollectControl(BooleanExpression predicate)
+    {
+        var sources = new List<SourceRef>();
+        _collector.VisitBoolean(predicate, CollectContext.Root with { Role = SourceRole.Control }, sources);
+        return sources;
+    }
+
+    /// <summary>
+    /// Short, deterministic label for an <c>IF</c> predicate. EXISTS predicates are the common case in this codebase and
+    /// are abbreviated to the tables they probe and the literal comparisons that characterise them
+    /// (<c>EXISTS (DET2_ILG_ProductDeliveryMethod WHERE DIP.DeliveryMethod = 'LVP' ...)</c>); anything else is the
+    /// normalised predicate text. Both are cut at <see cref="SqlScannerOptions.MaxBranchConditionLength"/>.
+    /// </summary>
+    private string BranchLabel(BooleanExpression predicate)
+    {
+        var text = predicate switch
+        {
+            ExistsPredicate exists => ExistsLabel(exists),
+            BooleanNotExpression { Expression: ExistsPredicate exists } => "NOT " + ExistsLabel(exists),
+            BooleanParenthesisExpression { Expression: ExistsPredicate exists } => ExistsLabel(exists),
+            _ => SqlText.Of(predicate),
+        };
+        return SqlText.Truncate(text, _options.MaxBranchConditionLength);
+    }
+
+    private static string ExistsLabel(ExistsPredicate exists)
+    {
+        var spec = FirstSpecification(exists.Subquery.QueryExpression);
+        if (spec is null)
+        {
+            return SqlText.Of(exists);
+        }
+
+        var tables = new NamedTableCollector();
+        spec.FromClause?.Accept(tables);
+        var tableNames = string.Join(", ", tables.Tables.Select(t => t.SchemaObject.BaseIdentifier.Value).Distinct(StringComparer.OrdinalIgnoreCase));
+
+        if (spec.WhereClause?.SearchCondition is not { } where)
+        {
+            return $"EXISTS ({tableNames})";
+        }
+
+        var predicates = new PredicateCollector();
+        where.Accept(predicates);
+        var literal = predicates.Predicates.Where(IsLiteralComparison).Select(SqlText.Of).ToList();
+        if (literal.Count == 0)
+        {
+            return $"EXISTS ({tableNames} WHERE {SqlText.Of(where)})";
+        }
+
+        var more = predicates.Predicates.Count > literal.Count ? " ..." : string.Empty;
+        return $"EXISTS ({tableNames} WHERE {string.Join(" AND ", literal)}{more})";
+    }
+
+    private static bool IsLiteralComparison(BooleanExpression predicate) => predicate switch
+    {
+        BooleanComparisonExpression cmp => cmp.FirstExpression is Literal || cmp.SecondExpression is Literal,
+        InPredicate { Subquery: null } inPredicate => inPredicate.Values.Count > 0 && inPredicate.Values.All(v => v is Literal),
+        LikePredicate like => like.SecondExpression is Literal,
+        _ => false,
+    };
+
+    /// <summary>
+    /// Emits the return value of a scalar function: one expression node fed by every <c>RETURN</c>, where returns inside
+    /// an <c>IF</c> carry the predicate as their condition and the remaining unconditional return is the <c>ELSE</c>.
+    /// Local variables are replaced by what was assigned to them (<c>RETURN @Result</c> -> <c>ISNULL(SUM(...), 0)</c>),
+    /// literals become <see cref="TransformType.Literal"/> lineage, and the predicates' columns are control inputs.
+    /// </summary>
+    public void EmitReturnValue()
+    {
+        if (_returns.Count == 0)
+        {
+            _builder.Report(ScanDiagnosticSeverity.Warning, $"{_ownerKey} has no RETURN with an expression; its value cannot be traced.", _file);
+            return;
+        }
+
+        var conditional = _returns.Where(r => r.Condition is not null).ToList();
+        var parts = new List<string>();
+        foreach (var site in _returns)
+        {
+            var value = site.IsLiteral ? site.Expression : InlineLocals(site.Expression);
+            parts.Add(site.Condition is not null
+                ? $"IF {site.Condition} RETURN {value}"
+                : conditional.Count > 0 ? $"ELSE RETURN {value}" : $"RETURN {value}");
+        }
+
+        var expressionText = string.Join(" ", parts);
+        var exprId = NodeIds.Expression(_ownerKey, ResultRelation, ReturnColumn);
+        var metadata = new Dictionary<string, string>
+        {
+            ["expression"] = expressionText,
+            ["kind"] = "return",
+            ["produces"] = _ownerId,
+        };
+        var locals = DescribeLocals(_returns.Select(r => r.Expression));
+        if (locals is not null)
+        {
+            metadata["variables"] = locals;
+        }
+
+        var first = _returns[0].Fragment;
+        var last = _returns[^1].Fragment;
+        _builder.Define(new Node
+        {
+            Id = exprId,
+            Type = NodeType.Expression,
+            Name = SqlText.Truncate(expressionText, _options.MaxExpressionNameLength),
+            QualifiedName = $"{_ownerKey} {ReturnColumn} = {expressionText}",
+            Layer = Layer.Data,
+            Source = new SourceLocation(_file, first.StartLine, SqlText.EndLine(last)),
+            Metadata = metadata,
+        });
+        var produces = _builder.Link(exprId, RelationType.Produces, _ownerId, EvidenceType.SqlParser, Evidence(first));
+
+        foreach (var site in _returns)
+        {
+            var condition = site.Condition ?? (conditional.Count > 0 ? "ELSE" : null);
+            var evidence = Evidence(site.Fragment);
+
+            // The IF predicates that lead to this RETURN decide the value: control inputs, whatever is returned.
+            var guards = site.Guards
+                .Select(g => g with { Role = SourceRole.Control, Condition = null, Transform = TransformType.Conditional, BranchExpression = null })
+                .ToList();
+
+            if (site.IsLiteral)
+            {
+                if (guards.Count > 0)
+                {
+                    EmitSources(exprId, _ownerId, expressionText, guards, produces.Id, evidence);
+                }
+
+                _builder.AddLineage(new FieldLineage
+                {
+                    OutputFieldId = _ownerId,
+                    SourceFieldId = null,
+                    TransformType = TransformType.Literal,
+                    Expression = site.Expression,
+                    Condition = condition,
+                    EvidenceEdgeIds = [produces.Id],
+                });
+                continue;
+            }
+
+            var returned = InlineLocals(site.Expression);
+            var sources = site.Sources
+                .Select(s => s.Role == SourceRole.Control
+                    ? s
+                    : s with
+                    {
+                        Condition = s.Condition ?? condition,
+                        Transform = condition is null ? s.Transform : TransformType.Conditional,
+                        BranchExpression = s.BranchExpression ?? returned,
+                    })
+                .Concat(guards)
+                .ToList();
+
+            if (sources.Count == 0)
+            {
+                _builder.AddLineage(new FieldLineage
+                {
+                    OutputFieldId = _ownerId,
+                    SourceFieldId = null,
+                    TransformType = TransformType.Expression,
+                    Expression = site.Expression,
+                    Condition = condition,
+                    EvidenceEdgeIds = [produces.Id],
+                    Confidence = 0.5,
+                });
+                _builder.Report(ScanDiagnosticSeverity.Warning, $"No resolvable source for the return value of {_ownerKey}: {SqlText.Truncate(site.Expression, 120)}", _file, site.Fragment.StartLine);
+                continue;
+            }
+
+            EmitSources(exprId, _ownerId, expressionText, sources, produces.Id, evidence);
+        }
+    }
+
+    /// <summary>Replaces local variables that have exactly one data-bearing assignment by that expression.</summary>
+    private string InlineLocals(string expression)
+        => VariableToken().Replace(expression, match =>
+        {
+            if (!_locals.TryGetValue(match.Value, out var assignments) || _variableBindings.ContainsKey(match.Value))
+            {
+                return match.Value;
+            }
+
+            var valued = assignments.Where(a => !a.IsLiteral).ToList();
+            return valued.Count == 1 ? valued[0].Expression : match.Value;
+        });
+
+    /// <summary>
+    /// Human-readable derivation of the local variables used in <paramref name="expressions"/>:
+    /// <c>@UseQuantityAllocated = 0 -> 1 WHEN EXISTS (...)</c>. Null when none is used.
+    /// </summary>
+    private string? DescribeLocals(IEnumerable<string> expressions)
+    {
+        var names = expressions
+            .SelectMany(e => VariableToken().Matches(e).Select(m => m.Value))
+            .Where(v => _locals.ContainsKey(v) && !_variableBindings.ContainsKey(v))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (names.Count == 0)
+        {
+            return null;
+        }
+
+        return string.Join("; ", names.Select(name =>
+        {
+            var steps = _locals[name].Select(a => a.Condition is null ? a.Expression : $"{a.Expression} WHEN {a.Condition}");
+            return $"{name} = {string.Join(" -> ", steps)}";
+        }));
+    }
+
+    public IEnumerable<SourceRef> LocalVariableSources(string variableName, CollectContext context)
+    {
+        if (!_locals.TryGetValue(variableName, out var assignments))
+        {
+            return [];
+        }
+
+        var results = new List<SourceRef>();
+        foreach (var assignment in assignments)
+        {
+            foreach (var source in assignment.Sources)
+            {
+                results.Add(source with
+                {
+                    Role = context.Role == SourceRole.Control ? SourceRole.Control : source.Role,
+                    Condition = source.Condition ?? assignment.Condition ?? context.Condition,
+                    Transform = context.InConditional || assignment.Condition is not null ? TransformType.Conditional : source.Transform,
+                    BranchExpression = context.BranchExpression ?? (source.Role == SourceRole.Control ? null : assignment.Expression),
+                    Variable = variableName,
+                });
+            }
+
+            // The IF that decided whether this assignment ran is a control input wherever the variable is used.
+            foreach (var guard in assignment.Guards)
+            {
+                results.Add(guard with { Role = SourceRole.Control, Condition = null, Transform = TransformType.Conditional, BranchExpression = null, Variable = variableName });
+            }
+        }
+
+        return results;
+    }
+
+    public IEnumerable<SourceRef> CollectPredicateSubquery(ScalarSubquery subquery, CollectContext context)
+    {
+        if (FirstSpecification(subquery.QueryExpression) is not { } spec)
+        {
+            return [];
+        }
+
+        var previousScope = _currentScope;
+        var scope = new QueryScope(previousScope);
+        _currentScope = scope;
+        try
+        {
+            if (spec.FromClause is not null)
+            {
+                foreach (var reference in spec.FromClause.TableReferences)
+                {
+                    RegisterTableReference(reference, scope);
+                }
+            }
+
+            RecordFilterVariables(spec.WhereClause?.SearchCondition, "filter");
+
+            var results = new List<SourceRef>();
+            _collector.VisitBoolean(spec.WhereClause?.SearchCondition, context, results);
+            return results;
         }
         finally
         {
@@ -846,13 +1203,48 @@ public sealed class SqlObjectAnalyzer : ISourceResolver
 
     private void BindVariable(string variableName, ScalarExpression value)
     {
-        var call = FunctionCalls(value).FirstOrDefault(c => SystemParameterRead(c) is not null);
-        if (call is null)
+        var parameter = ParameterReads(value).FirstOrDefault();
+        if (parameter is null)
         {
             return;
         }
 
-        Bind(variableName, SystemParameterRead(call)!, "declare");
+        Bind(variableName, parameter, "declare");
+    }
+
+    /// <summary>
+    /// System parameter names read anywhere inside <paramref name="fragment"/>, through a scalar reader call or a
+    /// table-valued reader in a FROM clause (<c>SELECT * FROM dbo.AF_GetSystemParameterValueListString('X') [bit]</c>).
+    /// </summary>
+    private IEnumerable<string> ParameterReads(TSqlFragment fragment)
+    {
+        foreach (var call in FunctionCalls(fragment))
+        {
+            if (SystemParameterRead(call) is { } parameter)
+            {
+                yield return parameter;
+            }
+        }
+
+        var tvfs = new TableValuedFunctionCollector();
+        fragment.Accept(tvfs);
+        foreach (var tvf in tvfs.Functions)
+        {
+            if (SystemParameterRead(tvf) is { } parameter)
+            {
+                yield return parameter;
+            }
+        }
+    }
+
+    private string? SystemParameterRead(SchemaObjectFunctionTableReference tvf)
+    {
+        if (!_options.SystemParameterFunctions.Contains(tvf.SchemaObject.BaseIdentifier.Value, StringComparer.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return tvf.Parameters.FirstOrDefault() is StringLiteral literal ? literal.Value : null;
     }
 
     private void Bind(string variableName, string parameterName, string usage)
@@ -888,13 +1280,9 @@ public sealed class SqlObjectAnalyzer : ISourceResolver
         }
 
         // Inline reads: WHERE X = dbo.AF_GetSystemParameterValue('P', ...)
-        foreach (var call in FunctionCalls(predicate))
+        foreach (var parameter in ParameterReads(predicate))
         {
-            var parameter = SystemParameterRead(call);
-            if (parameter is not null)
-            {
-                Bind($"<inline:{parameter}>", parameter, usage);
-            }
+            Bind($"<inline:{parameter}>", parameter, usage);
         }
     }
 
@@ -1047,6 +1435,30 @@ public sealed class SqlObjectAnalyzer : ISourceResolver
 
         public override void Visit(BooleanComparisonExpression node) => Comparisons.Add(node);
     }
+
+    /// <summary>Atomic predicates of a WHERE clause (comparisons, IN, LIKE, IS NULL), used to abbreviate EXISTS labels.</summary>
+    private sealed class PredicateCollector : TSqlFragmentVisitor
+    {
+        public List<BooleanExpression> Predicates { get; } = [];
+
+        public override void Visit(BooleanComparisonExpression node) => Predicates.Add(node);
+
+        public override void Visit(InPredicate node) => Predicates.Add(node);
+
+        public override void Visit(LikePredicate node) => Predicates.Add(node);
+
+        public override void Visit(BooleanIsNullExpression node) => Predicates.Add(node);
+    }
+
+    private sealed class TableValuedFunctionCollector : TSqlFragmentVisitor
+    {
+        public List<SchemaObjectFunctionTableReference> Functions { get; } = [];
+
+        public override void Visit(SchemaObjectFunctionTableReference node) => Functions.Add(node);
+    }
+
+    [GeneratedRegex(@"@\w+")]
+    private static partial Regex VariableToken();
 
     private sealed class NamedTableCollector : TSqlFragmentVisitor
     {

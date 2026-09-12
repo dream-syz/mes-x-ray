@@ -14,7 +14,7 @@ If :5173 is busy (another Vite project, for example) the script moves the UI to 
 
 (Manual alternative: `dotnet run --project src/MesXray.Api` and `cd src/MesXray.Web && npm run dev`.)
 
-Check `GET http://localhost:5080/api/xray/health` → `status: ok`, 183 nodes, 307 edges, linker `unmappedColumns: []`.
+Check `GET http://localhost:5080/api/xray/health` → `status: ok`, 210 nodes, 363 edges, linker `unmappedColumns: []`.
 Pick order for the demo: **PICK0843858**, material **T12288** (Bracket, left, zinc plated), runtime trace `trace-demo-001`.
 
 Each scene has a deep link so you can recover instantly if a click goes wrong. The spoken version of this script, with a time budget and a screenshot per scene, is [`demo/talk-track.md`](demo/talk-track.md).
@@ -33,6 +33,9 @@ Click **`availableQuantity`** in the Response Tree (bold = key field). Inspector
 - Upstream lineage: JSON field → property → result column → CTE column `TotalAvailableQuantity` = `SUM(MR.AvailableQuantity)` → expression
   `CASE @WMS_Enabled WHEN 0 THEN ISNULL(SUM(APPQD.Quantity) * 10, 1000) WHEN 1 THEN ISNULL(dbo.AF_Pick_GetAvailableQuantity(...), 0) END`
 - Both branches are visible with their conditions `@WMS_Enabled = 0` / `@WMS_Enabled = 1`; the parameter is a `controlled by` hop.
+- The `@WMS_Enabled = 1` branch does not stop at the function call: `AF_Pick_GetAvailableQuantity` is Known (its sanitized definition is in the fixture) and the trace continues through its RETURN expression
+  `IF EXISTS (DET2_ILG_ProductDeliveryMethod WHERE DIP.DeliveryMethod = 'LVP' ...) RETURN 1000 ELSE RETURN ISNULL(SUM(QuantityOnHand), 0)`
+  into the `InventoryData` CTE (`CASE WHEN @UseQuantityAllocated = 1 ... WHEN PG.Group_ = 'ECU' ... ELSE ISNULL(I.QuantityOnHand, 0) END`) down to `INVENTORY2.QuantityOnHand` / `QuantityAllocated`, `PRODUCT_GROUP.Group_` and the `DET2_ILG_ProductDeliveryMethod` columns that decide the branches. `trace.unknowns` is empty.
 
 Deep link: `/?field=availableQuantity`
 
@@ -46,18 +49,21 @@ Talking point: Pick = 18, OnHand = 0, Allocated = 18, but Available comes from a
 
 Deep link: `/?order=PICK0843858&field=availableQuantity&scope=T12288`
 
-## Scene 4 — The UDF and "Need More Evidence"
+## Scene 4 — Inside the UDF: a hypothesis, not a guess
 
 Inspector → **Investigate**. The rule-based investigator (or the LLM, validated the same way) returns:
 
-- Verdict **Need More Evidence**, confidence 75 %
-- Known facts, each with evidence chips (`ev-067`, edge ids, node ids) — click a chip to jump to the node
+- Verdict **Need More Evidence**, confidence 80 %, 21 facts, 63 cited evidence ids, 1 unknown
+- Known facts, each with evidence chips (`ev-068`, edge ids, node ids, lineage ids) — click a chip to jump to the node
 - Fact: *Active branch: `@WMS_Enabled = 1` …* (derived from the live parameter value)
-- Hypothesis (unverified): *AvailableQuantity is determined inside `AF_Pick_GetAvailableQuantity`, whose definition is not available* — with a read-only suggested check
-- Hypothesis (unverified): the observed 0 may be the `ISNULL(..., 0)` fallback
-- Unknown: `AF_Pick_GetAvailableQuantity` — dashed node on the graph
+- Facts inside the function: `AF_Pick_GetAvailableQuantity = IF EXISTS (... 'LVP' ...) RETURN 1000 ELSE RETURN ISNULL(SUM(QuantityOnHand), 0)`; *Branch `EXISTS (...)` returns the constant 1000*; *Which branch applies depends on row data: `DET2_ILG_ProductDeliveryMethod.DeliveryMethod`, … these rows were not captured in the trace*; the local variable `@UseQuantityAllocated = 0 -> 1 WHEN EXISTS (... IN ('LVS_MPA','SLFR_MPA','LVS_LINE','SLFR_LINE') ...)`
+- Hypothesis (unverified): *`AF_Pick_GetAvailableQuantity` equals the ISNULL fallback 0 of `ISNULL(SUM(QuantityOnHand), 0)`; the inner value was probably NULL (no matching row …)* — with a read-only suggested check in TEST
+- Unknown (runtime detail, not a static gap): the function was evaluated inside SQL Server; its return value per material and the INVENTORY2 rows were not captured
+- Next step: query `DET2_ILG_ProductDeliveryMethod`, `PRODUCT`, `PRODUCT_GROUP` for this material in TEST (read-only) to determine the active branch
 
-Talking point: the AI does not guess. Without the UDF definition it says so, and every sentence it does assert is bound to an evidence id.
+Talking point: the AI does not guess. The static lineage is complete down to the base tables (**Explain** on the same field is *Known*, 90 %); the *value* 0 is explained by a hypothesis, so **Investigate** says Need More Evidence and tells you which read-only check settles it. Every sentence it asserts is bound to an evidence id.
+
+Contrast: material `T55102` shows `availableQuantity = 1000`; Investigate for `scope=T55102` yields the hypothesis *equals the constant 1000 returned when EXISTS (... DeliveryMethod = 'LVP' ...)*. `T40917` (860) matches neither a constant nor an ISNULL default: verdict Known.
 
 Language: flip EN / 中文 here if you want to show it. The explanation is re-requested in the other language; the verdict, confidence, evidence ids and values do not change, only the sentences do.
 
@@ -77,7 +83,7 @@ Deep link: `/?impact=param:WMS_Enabled`
 
 Response Tree → `pickStorageBin.storageBin`. Lineage: `STRING_AGG(...)` over `#LocationList.StorageBin` ← CASE on `WL_Description_Replacement` (`ELSE` → `WAREHOUSE_LOCATION.Location`) with the FIFO ordering; live value `"A-01-02,A-01-05"`.
 
-Optional contrast: `destinationWagon.storageBin.location` ends explicitly at the **Pending** `GetStorageBin` method and the runtime-computed SP — Unknown by design, not a dead end.
+Optional contrast: `destinationWagon.storageBin.location` ends explicitly at the **Pending** `GetStorageBin` method and the runtime-computed SP — Unknown by design, not a dead end. (This is what `availableQuantity` looked like before the `AF_Pick_GetAvailableQuantity` definition was delivered.)
 
 Deep links: `/?order=PICK0843858&field=json:pickOrderRows.pickStorageBin.storageBin&scope=T12288`; contrast `/?field=json:pickOrderRows.destinationWagon.storageBin.location&explain=1`
 

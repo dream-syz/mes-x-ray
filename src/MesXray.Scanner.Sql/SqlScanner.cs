@@ -129,12 +129,21 @@ public sealed class SqlScanner : IScanner
         var analyzer = new SqlObjectAnalyzer(builder, _options, file, ownerId, ownerKey);
         analyzer.Analyze(function.StatementList);
 
-        if (function.ReturnType is SelectFunctionReturnType inline)
+        switch (function.ReturnType)
         {
-            // Inline TVF: the SELECT is the result relation.
-            var wrapper = new StatementList();
-            wrapper.Statements.Add(inline.SelectStatement);
-            analyzer.Analyze(wrapper);
+            case SelectFunctionReturnType inline:
+                {
+                    // Inline TVF: the SELECT is the result relation.
+                    var wrapper = new StatementList();
+                    wrapper.Statements.Add(inline.SelectStatement);
+                    analyzer.Analyze(wrapper);
+                    break;
+                }
+
+            case ScalarFunctionReturnType:
+                // Scalar UDF: its value is what the RETURN statements yield, so callers can trace through it.
+                analyzer.EmitReturnValue();
+                break;
         }
     }
 

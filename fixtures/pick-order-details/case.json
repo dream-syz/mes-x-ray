@@ -20,17 +20,13 @@
     "param:PickOrder_Type",
     "param:PickDocumentClassForProductImage",
     "param:ChildContainerCalssID",
-    "param:WL_Description_Replacement"
+    "param:WL_Description_Replacement",
+    "param:Pick_UseParentLocation"
   ],
   "defaultFixtureId": "pick-order-PICK0843858",
   "defaultTraceId": "trace-demo-001",
   "defaultScope": "T12288",
   "knownGaps": [
-    {
-      "nodeId": "udf:dbo.AF_Pick_GetAvailableQuantity",
-      "reason": "Function definition has not been provided; AvailableQuantity cannot be traced past the UDF call when WMS_Enabled = 1.",
-      "priority": "P0"
-    },
     {
       "nodeId": "method:PickOrderService.GetStorageBin",
       "reason": "Storage bin procedure for destination wagons is configured per site and has not been scanned.",

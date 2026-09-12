@@ -17,7 +17,8 @@
     "PickOrder_Type": "STANDARD",
     "PickDocumentClassForProductImage": "ProductImage",
     "ChildContainerCalssID": "3",
-    "WL_Description_Replacement": "0"
+    "WL_Description_Replacement": "0",
+    "Pick_UseParentLocation": "0"
   },
   "response": [
     {
@@ -130,7 +131,7 @@
     }
   },
   "unknowns": [
-    "AF_Pick_GetAvailableQuantity was evaluated inside SQL Server; its intermediate values were not captured.",
+    "AF_Pick_GetAvailableQuantity was evaluated inside SQL Server; its return value per material and the INVENTORY2 / InventoryData rows behind it were not captured.",
     "GetStorageBin() result per wagon was not captured (procedure pending)."
   ]
 }

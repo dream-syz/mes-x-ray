@@ -24,14 +24,24 @@ public sealed class FieldTraceTests : IClassFixture<AssembledGraphFixture>
         var caseExpr = Assert.Single(hops, h => h.NodeId == "expr:dbo.AP_Pick_GetPickOrderRows.MainResults.AvailableQuantity");
         Assert.Contains(caseExpr.Sources, s => s.NodeId == "param:WMS_Enabled" && s.ViaRelation == RelationType.ControlledBy);
         Assert.Contains(caseExpr.Sources, s => s.Condition == "@WMS_Enabled = 0" && s.NodeId == "column:dbo.AT_PICK_PRINT_QUEUE_DETAIL.Quantity");
-        Assert.Contains(caseExpr.Sources, s => s.Condition == "@WMS_Enabled = 1" && s.NodeId == "udf:dbo.AF_Pick_GetAvailableQuantity" && s.Status == NodeStatus.Unknown);
+        var udf = Assert.Single(caseExpr.Sources, s => s.NodeId == "udf:dbo.AF_Pick_GetAvailableQuantity");
+        Assert.Equal("@WMS_Enabled = 1", udf.Condition);
+        Assert.Equal(NodeStatus.Known, udf.Status);
 
         var conditions = caseExpr.Sources.Select(s => s.Condition).Where(c => c is not null).Distinct().Order().ToList();
         Assert.Equal(["@WMS_Enabled = 0", "@WMS_Enabled = 1"], conditions);
 
-        Assert.Contains(trace.Unknowns, u => u.NodeId == "udf:dbo.AF_Pick_GetAvailableQuantity");
-        Assert.Equal(["Web VP - Pick Order Details", "GET /cwp/v1/picking/pickOrder", "GetPickOrder", "GetPickOrderDetails", "GetPickOrderRows", "GetPickOrderRows", "AP_Pick_GetPickOrderRows"],
-            trace.ExecutionPath.Take(7).Select(n => n.Name));
+        // With the function definition scanned the trace continues into its RETURN expression down to INVENTORY2.
+        var ret = Assert.Single(udf.Sources);
+        Assert.Equal("expr:dbo.AF_Pick_GetAvailableQuantity.$.RETURN", ret.NodeId);
+        Assert.Contains(ret.Sources, s => s.NodeId == "ctecol:dbo.AF_Pick_GetAvailableQuantity.InventoryData.QuantityOnHand" && s.Condition == "ELSE");
+        Assert.Contains(ret.Sources, s => s.NodeId == "column:dbo.DET2_ILG_ProductDeliveryMethod.DeliveryMethod" && s.ViaRelation == RelationType.ControlledBy);
+        Assert.Contains(hops, h => h.NodeId == "column:dbo.INVENTORY2.QuantityOnHand" && h.Condition == "ELSE");
+        Assert.Contains(hops, h => h.NodeId == "column:dbo.INVENTORY2.QuantityAllocated" && h.Condition == "@UseQuantityAllocated = 1 | PG.Group_ = 'ECU'");
+
+        Assert.Empty(trace.Unknowns);
+        Assert.Equal(["Web VP - Pick Order Details", "GET /cwp/v1/picking/pickOrder", "GetPickOrder", "GetPickOrderDetails", "GetPickOrderRows", "GetPickOrderRows", "AP_Pick_GetPickOrderRows", "AF_Pick_GetAvailableQuantity"],
+            trace.ExecutionPath.Select(n => n.Name));
     }
 
     [Fact]
@@ -157,10 +167,24 @@ public sealed class FieldTraceTests : IClassFixture<AssembledGraphFixture>
     [Fact]
     public void Unknown_focus_produces_an_empty_tree_with_the_gap_stated()
     {
-        var trace = _fx.Tracer.Trace("udf:dbo.AF_Pick_GetAvailableQuantity");
-        Assert.Equal(NodeStatus.Unknown, trace.Root.Status);
+        var trace = _fx.Tracer.Trace("udf:dbo.AF_GetSystemParameterValueint");
+        Assert.NotEqual(NodeStatus.Known, trace.Root.Status);
         Assert.Empty(trace.Root.Sources);
         Assert.Single(trace.Unknowns);
+    }
+
+    [Fact]
+    public void Scalar_function_focus_traces_its_return_value_to_the_base_columns()
+    {
+        var trace = _fx.Tracer.Trace("udf:dbo.AF_Pick_GetAvailableQuantity", _fx.DemoTrace, "T55102");
+        Assert.Equal(NodeStatus.Known, trace.Root.Status);
+        Assert.Empty(trace.Unknowns);
+
+        var hops = AssembledGraphFixture.Flatten(trace.Root).ToList();
+        Assert.Contains(hops, h => h.NodeId == "expr:dbo.AF_Pick_GetAvailableQuantity.$.RETURN");
+        Assert.Contains(hops, h => h.NodeId == "column:dbo.INVENTORY2.QuantityOnHand");
+        Assert.Contains(hops, h => h.NodeId == "column:dbo.PRODUCT_GROUP.Group_" && h.ViaRelation == RelationType.ControlledBy);
+        Assert.DoesNotContain(hops, h => h.Status != NodeStatus.Known);
     }
 }
 

@@ -30,6 +30,7 @@ public static class PromptLibrary
             ["hops"] = RenderHops(bundle),
             ["evidence"] = string.Join("\n", bundle.Items.Where(i => bundle.AllowedEvidenceIds.Contains(i.Id)).Select(i => $"- {i.Id} ({i.Kind}): {i.Text}")),
             ["unknowns"] = bundle.Unknowns.Count == 0 ? "(none)" : string.Join("\n", bundle.Unknowns.Select(u => "- " + u)),
+            ["runtimeNotes"] = bundle.RuntimeNotes.Count == 0 ? "(none)" : string.Join("\n", bundle.RuntimeNotes.Select(u => "- " + u)),
         };
 
         var sb = new StringBuilder(template);
@@ -123,6 +124,20 @@ public static class PromptLibrary
             }
 
             sb.AppendLine();
+
+            foreach (var literal in hop.LiteralBranches)
+            {
+                sb.Append(' ', hop.Depth * 2 + 2)
+                  .Append("- constant ").Append(literal.Literal)
+                  .Append(literal.Condition is null ? string.Empty : " when " + literal.Condition)
+                  .Append(" (").Append(literal.LineageId).Append(')')
+                  .AppendLine();
+            }
+
+            foreach (var note in hop.Notes)
+            {
+                sb.Append(' ', hop.Depth * 2 + 2).Append("- note: ").Append(note).AppendLine();
+            }
         }
 
         return sb.ToString();
