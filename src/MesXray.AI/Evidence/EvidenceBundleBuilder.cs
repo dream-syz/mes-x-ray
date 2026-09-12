@@ -20,7 +20,7 @@ public sealed partial class EvidenceBundleBuilder
         _graph = graph;
     }
 
-    public EvidenceBundle Build(FieldTrace trace, RuntimeTrace? runtime, string? question, IReadOnlyList<string>? allowedEvidenceIds, int maxItems)
+    public EvidenceBundle Build(FieldTrace trace, RuntimeTrace? runtime, string? question, IReadOnlyList<string>? allowedEvidenceIds, int maxItems, string? language = null)
     {
         var hops = new List<HopSummary>();
         Flatten(trace.Root, 0, hops);
@@ -113,6 +113,7 @@ public sealed partial class EvidenceBundleBuilder
             TraceId = runtime?.TraceId ?? trace.TraceId,
             Scope = trace.Scope,
             Environment = runtime?.Environment,
+            Language = Investigators.AiLanguage.Normalize(language),
             ExecutionPath = trace.ExecutionPath,
             Hops = hops,
             Items = ordered,

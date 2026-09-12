@@ -72,9 +72,11 @@ export const api = {
   invokeTool: (tool: string, args: Record<string, string>) =>
     request<ToolResult>("/runtime/tools", { method: "POST", body: JSON.stringify({ tool, arguments: args }) }),
 
-  explain: (focusNodeId: string, traceId?: string | null, scope?: string | null, question?: string) =>
-    request<ExplainResponse>("/ai/explain", { method: "POST", body: JSON.stringify({ focusNodeId, traceId, scope, question }) }),
-  investigate: (focusNodeId: string, traceId: string, scope?: string | null, question?: string) =>
-    request<ExplainResponse>("/ai/investigate", { method: "POST", body: JSON.stringify({ focusNodeId, traceId, scope, question }) }),
-  impactSummary: (nodeId: string) => request<ImpactSummaryResponse>("/ai/impact-summary", { method: "POST", body: JSON.stringify({ nodeId }) }),
+  // `language` ("en" | "zh") only changes the sentences of the answer; ids, expressions, values and evidence ids stay verbatim.
+  explain: (focusNodeId: string, traceId?: string | null, scope?: string | null, question?: string, language?: string) =>
+    request<ExplainResponse>("/ai/explain", { method: "POST", body: JSON.stringify({ focusNodeId, traceId, scope, question, language }) }),
+  investigate: (focusNodeId: string, traceId: string, scope?: string | null, question?: string, language?: string) =>
+    request<ExplainResponse>("/ai/investigate", { method: "POST", body: JSON.stringify({ focusNodeId, traceId, scope, question, language }) }),
+  impactSummary: (nodeId: string, language?: string) =>
+    request<ImpactSummaryResponse>("/ai/impact-summary", { method: "POST", body: JSON.stringify({ nodeId, language }) }),
 };

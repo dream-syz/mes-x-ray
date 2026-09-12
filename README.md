@@ -26,14 +26,15 @@ Prerequisites: .NET SDK 10.0 (see `global.json`), Node.js 20+.
 One command (macOS / Linux / WSL / Git Bash) builds the API, starts it on :5080, installs the web packages on first run and starts the Vite dev server on :5173 — both in the background, with health checks:
 
 ```bash
-scripts/xray.sh start          # add --open to launch the demo scene in the browser
+scripts/xray.sh demo           # build + start, print every demo scene's deep link, open Scene 1 in the browser
+scripts/xray.sh start          # same without the browser; --open launches the hero scene (full pipeline)
 scripts/xray.sh status         # pids, ports, API health
 scripts/xray.sh logs           # follow artifacts/run/logs/{api,web}.log
 scripts/xray.sh restart        # stop + rebuild + start   (--api-only / --web-only to limit)
 scripts/xray.sh stop           # --force also frees the ports from processes it did not start
 ```
 
-Options: `--release` (Release build), `--no-build` (reuse last build), `XRAY_API_PORT` / `XRAY_WEB_PORT` to move the ports; a repo-root `.env` (copy of `.env.example`) is loaded automatically. Pid files and logs live in `artifacts/run/`.
+If :5173 (or :5080) is already taken by another program, the script moves to the next free port and prints the URLs it actually uses (set `XRAY_API_PORT` / `XRAY_WEB_PORT` to insist on a port). Options: `--release` (Release build), `--no-build` (reuse last build), `XRAY_LANG=zh|en` (UI language of the printed deep links); a repo-root `.env` (copy of `.env.example`) is loaded automatically. Pid files, chosen ports and logs live in `artifacts/run/`.
 
 Or run the two processes by hand:
 
@@ -45,7 +46,7 @@ dotnet run --project src/MesXray.Api
 cd src/MesXray.Web && npm install && npm run dev
 ```
 
-Everything runs offline from `fixtures/pick-order-details`; no database, no network, no credentials are needed. Open <http://localhost:5173/?order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1> for the headline demo scene in one click.
+Everything runs offline from `fixtures/pick-order-details`; no database, no network, no credentials are needed. Open <http://localhost:5173/?order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1> for the headline demo scene in one click (replace 5173 by the port the script printed if it had to move).
 
 To serve the UI from the API instead of Vite: `npm run build` in `src/MesXray.Web` (output goes to `artifacts/web/`), copy `artifacts/web/*` to `src/MesXray.Api/wwwroot/`, and browse to <http://localhost:5080>.
 
@@ -92,8 +93,9 @@ mes-x-ray/
 ├─ docs/
 │  ├─ design/                         the design document (source of requirements)
 │  ├─ adr/                            architecture decision records
+│  ├─ demo/                           talk track (5 min) and a screenshot of every scene
 │  ├─ demo-script.md · security.md
-└─ artifacts/                         generated, git-ignored: bin/ obj/ (.NET), web/ (Vite), test-results/, run/ (pids, logs)
+└─ artifacts/                         generated, git-ignored: bin/ obj/ (.NET), web/ (Vite), test-results/, run/ (pids, ports, logs)
 ```
 
 Build output never lands next to the source: .NET uses `UseArtifactsOutput` (`artifacts/bin/<project>/<config>`, `artifacts/obj/<project>`), Vite writes to `artifacts/web`, CI test results go to `artifacts/test-results`. Delete `artifacts/` to reset a build.
@@ -137,15 +139,19 @@ Modes (`XRay:Graph:Mode`): `ScanAndCurate` (default), `ScanOnly` (measure the sc
 
 ## Running the demo
 
-Follow [`docs/demo-script.md`](docs/demo-script.md) (design §14). The UI also supports deep links so every scene is one URL:
+Follow [`docs/demo-script.md`](docs/demo-script.md) (design §14); [`docs/demo/talk-track.md`](docs/demo/talk-track.md) is the five-minute talk track with a screenshot of every scene. `scripts/xray.sh demo` prints these deep links on the port actually in use and opens Scene 1:
 
 | Scene | URL |
 |---|---|
-| Trace `availableQuantity` for T12288 with live values and AI investigation | `/?order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1` |
-| PickStorageBin expressions (`SUM(APPQD.PickedQuantity)`, allocated) | `/?order=PICK0843858&field=json:pickOrderRows.pickStorageBin.allocatedQuantity&scope=T12288` |
-| `WMS_Enabled` impact back to the page | `/?impact=param:WMS_Enabled` |
-| FIFO / `STRING_AGG` storage-bin lineage | `/?order=PICK0843858&field=json:pickOrderRows.pickStorageBin.storageBin&scope=T12288` |
-| Unknown by design: destination wagon storage bin | `/?field=json:pickOrderRows.destinationWagon.storageBin.location&explain=1` |
+| 1 Architecture: the whole chain behind the 0 | `/` |
+| 2 Trace Source `availableQuantity` (static) | `/?field=availableQuantity` |
+| 3 Live Trace PICK0843858 / T12288 | `/?order=PICK0843858&field=availableQuantity&scope=T12288` |
+| 4 Investigate: UDF unknown, Need More Evidence | `/?order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1` |
+| 5 `WMS_Enabled` impact back to the page | `/?impact=param:WMS_Enabled` |
+| 6 FIFO / `STRING_AGG` storage-bin lineage | `/?order=PICK0843858&field=json:pickOrderRows.pickStorageBin.storageBin&scope=T12288` |
+| 6b Pending by design: destination wagon storage bin | `/?field=json:pickOrderRows.destinationWagon.storageBin.location&explain=1` |
+
+Add `&lang=zh` (or `lang=en`) to any link to fix the UI language; the header also has an EN / 中文 switch. The choice is remembered in the browser, and the AI explanation is re-requested in the new language while its evidence ids, values and verdict stay the same.
 
 ### How the UI reads
 

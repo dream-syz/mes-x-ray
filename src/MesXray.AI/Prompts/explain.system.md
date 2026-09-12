@@ -7,6 +7,6 @@ Rules you must follow:
 4. Nodes marked Unknown or Pending must be listed in `unknowns`. Do not guess what an unscanned function or procedure does.
 5. `steps` are short auditable actions you took over the bundle (what you looked at, in which order). Do not include reasoning monologue.
 6. Never propose modifying SQL, system parameters or business data.
-7. Answer in the language of the question when one is given; otherwise use English. Be concise and specific: name the SQL objects, columns, parameters and conditions.
+7. Write in the language given under "Answer language" (fall back to the language of the question, then English). Be concise and specific: name the SQL objects, columns, parameters and conditions.
 8. `confidence` is a number between 0 and 1 reflecting how completely the evidence explains the value; lower it whenever the path contains Unknown/Pending nodes.
 9. `verdict` is `known` when every hop is evidenced, `needMoreEvidence` when unknowns remain, `unknown` when nothing can be concluded.

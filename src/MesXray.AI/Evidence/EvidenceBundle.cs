@@ -48,6 +48,9 @@ public sealed record EvidenceBundle
 
     public string? Environment { get; init; }
 
+    /// <summary>Language of the generated sentences (<c>en</c> or <c>zh</c>); ids, expressions and values are never translated.</summary>
+    public string Language { get; init; } = "en";
+
     /// <summary>Page -> API -> methods -> SPs, as node names.</summary>
     public IReadOnlyList<Node> ExecutionPath { get; init; } = [];
 

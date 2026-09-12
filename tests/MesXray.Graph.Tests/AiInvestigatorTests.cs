@@ -20,11 +20,44 @@ public sealed class AiInvestigatorTests : IClassFixture<AssembledGraphFixture>
         _fx = fx;
     }
 
-    private EvidenceBundle Bundle(string field, string? question = null, string? scope = "T12288", bool withTrace = true, IReadOnlyList<string>? allowed = null)
+    private EvidenceBundle Bundle(string field, string? question = null, string? scope = "T12288", bool withTrace = true, IReadOnlyList<string>? allowed = null, string? language = null)
     {
         var runtime = withTrace ? _fx.DemoTrace : null;
         var trace = _fx.Tracer.Trace(field, runtime, withTrace ? scope : null);
-        return new EvidenceBundleBuilder(_fx.Store).Build(trace, runtime, question, allowed, _options.MaxEvidenceItems);
+        return new EvidenceBundleBuilder(_fx.Store).Build(trace, runtime, question, allowed, _options.MaxEvidenceItems, language);
+    }
+
+    [Fact]
+    public async Task Chinese_explanation_keeps_ids_values_and_verdict_identical_to_the_english_one()
+    {
+        var investigator = new RuleBasedInvestigator(_options);
+        var english = await investigator.InvestigateAsync(Bundle("availableQuantity", "Why is Available Quantity 0?"));
+        var chinese = await investigator.InvestigateAsync(Bundle("availableQuantity", "Why is Available Quantity 0?", language: "zh-CN"));
+
+        Assert.Equal(english.Verdict, chinese.Verdict);
+        Assert.Equal(english.Confidence, chinese.Confidence);
+        Assert.Equal(english.KnownFacts.Count, chinese.KnownFacts.Count);
+        Assert.Equal(english.Audit.EvidenceIds, chinese.Audit.EvidenceIds);
+        Assert.Equal(english.KnownFacts.Select(f => f.EvidenceIds), chinese.KnownFacts.Select(f => f.EvidenceIds));
+
+        Assert.Contains(chinese.KnownFacts, f => f.Text.Contains("观测值", StringComparison.Ordinal) && f.Text.Contains("availableQuantity = 0", StringComparison.Ordinal));
+        Assert.Contains(chinese.KnownFacts, f => f.Text.Contains("生效的分支", StringComparison.Ordinal) && f.Text.Contains("WMS_Enabled = 1", StringComparison.Ordinal));
+        Assert.Contains("需要更多证据", chinese.Summary, StringComparison.Ordinal);
+        Assert.Contains("AF_Pick_GetAvailableQuantity", chinese.Summary, StringComparison.Ordinal);
+        Assert.All(chinese.Steps, s => Assert.DoesNotContain("Resolved focus", s, StringComparison.Ordinal));
+
+        // Unsupported tags fall back to English rather than failing.
+        Assert.Equal("en", Bundle("availableQuantity", language: "fr").Language);
+        Assert.Equal("zh", Bundle("availableQuantity", language: "zh-Hans").Language);
+    }
+
+    [Fact]
+    public async Task Impact_summary_is_available_in_chinese()
+    {
+        var impact = _fx.Impact.Analyze("param:WMS_Enabled");
+        var explanation = await new RuleBasedInvestigator(_options).SummarizeImpactAsync(impact, "zh");
+        Assert.Contains("WMS_Enabled 影响", explanation.Summary, StringComparison.Ordinal);
+        Assert.Contains(explanation.KnownFacts, f => f.Text.Contains("传导到", StringComparison.Ordinal) && f.Text.Contains("Web VP", StringComparison.Ordinal));
     }
 
     [Fact]

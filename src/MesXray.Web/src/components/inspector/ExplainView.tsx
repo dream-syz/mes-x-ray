@@ -1,11 +1,19 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import type { EvidenceItem, ExplainResponse } from "../../api/types";
+import type { MessageKey } from "../../lib/i18n";
+import { useI18n } from "../../lib/I18nContext";
 import { percent } from "../../lib/presentation";
 
-const VERDICT: Record<ExplainResponse["explanation"]["verdict"], { label: string; className: string }> = {
-  known: { label: "Known", className: "verdict-known" },
-  needMoreEvidence: { label: "Need More Evidence", className: "verdict-partial" },
-  unknown: { label: "Unknown", className: "verdict-unknown" },
+const VERDICT: Record<ExplainResponse["explanation"]["verdict"], { label: MessageKey; className: string }> = {
+  known: { label: "verdict.known", className: "verdict-known" },
+  needMoreEvidence: { label: "verdict.needMoreEvidence", className: "verdict-partial" },
+  unknown: { label: "verdict.unknown", className: "verdict-unknown" },
+};
+
+const HYPOTHESIS_STATUS: Record<string, MessageKey | undefined> = {
+  unverified: "hypothesis.unverified",
+  supported: "hypothesis.supported",
+  refuted: "hypothesis.refuted",
 };
 
 function EvidenceChips({ ids, index, onSelect }: { ids: string[]; index: Map<string, EvidenceItem>; onSelect: (id: string) => void }) {
@@ -26,6 +34,7 @@ function EvidenceChips({ ids, index, onSelect }: { ids: string[]; index: Map<str
 
 export function ExplainView({ response, onSelect }: { response: ExplainResponse; onSelect: (id: string) => void }) {
   const { explanation, evidence } = response;
+  const { t } = useI18n();
   const [showEvidence, setShowEvidence] = useState(false);
   const index = useMemo(() => new Map(evidence.map((e) => [e.id, e])), [evidence]);
   const verdict = VERDICT[explanation.verdict];
@@ -33,37 +42,37 @@ export function ExplainView({ response, onSelect }: { response: ExplainResponse;
   return (
     <div className="explain-view">
       <div className="view-title">
-        <h3>{explanation.audit.provider === "rules" ? "Explain" : "AI Explain"}</h3>
+        <h3>{explanation.audit.provider === "rules" ? t("explain.title") : t("explain.aiTitle")}</h3>
         <code>{response.focusNodeId}</code>
       </div>
 
       <div className={`verdict ${verdict.className}`} style={{ "--confidence": percent(explanation.confidence) } as CSSProperties}>
-        <div className="verdict-label">{verdict.label}</div>
+        <div className="verdict-label">{t(verdict.label)}</div>
         <div className="verdict-meta">
-          <span className="metric" title="Confidence is capped by the evidence-binding validator">
-            <b>{percent(explanation.confidence)}</b> confidence
+          <span className="metric" title={t("explain.confidenceHint")}>
+            <b>{percent(explanation.confidence)}</b> {t("metric.confidence")}
           </span>
           <span className="metric">
-            <b>{explanation.evidenceCount}</b> evidence items
+            <b>{explanation.evidenceCount}</b> {t("metric.evidenceItems")}
           </span>
           <span className="metric">
-            <b>{explanation.knownFacts.length}</b> facts
+            <b>{explanation.knownFacts.length}</b> {t("metric.facts")}
           </span>
           <span className="metric">
-            <b>{explanation.unknowns.length}</b> unknowns
+            <b>{explanation.unknowns.length}</b> {t("metric.unknowns")}
           </span>
         </div>
       </div>
       <p className="summary">{explanation.summary}</p>
 
-      <span className="section-label">Auditable steps</span>
+      <span className="section-label">{t("section.steps")}</span>
       <ol className="steps">
         {explanation.steps.map((s) => (
           <li key={s}>{s}</li>
         ))}
       </ol>
 
-      <span className="section-label">Known facts, each bound to evidence</span>
+      <span className="section-label">{t("section.facts")}</span>
       <ul className="facts">
         {explanation.knownFacts.map((f) => (
           <li key={f.text}>
@@ -73,29 +82,32 @@ export function ExplainView({ response, onSelect }: { response: ExplainResponse;
         ))}
       </ul>
 
-      <span className="section-label">Hypotheses</span>
+      <span className="section-label">{t("section.hypotheses")}</span>
       {explanation.hypotheses.length === 0 ? (
-        <p className="muted">None. Every claim is evidenced.</p>
+        <p className="muted">{t("explain.noHypotheses")}</p>
       ) : (
         <ul className="hypotheses">
-          {explanation.hypotheses.map((h) => (
-            <li key={h.text}>
-              <span className={`status-chip hypothesis-${h.status}`}>{h.status}</span> {h.text}
-              {h.suggestedCheck && <div className="muted">Check (read-only): {h.suggestedCheck}</div>}
-              {h.evidenceIds && h.evidenceIds.length > 0 && <EvidenceChips ids={h.evidenceIds} index={index} onSelect={onSelect} />}
-            </li>
-          ))}
+          {explanation.hypotheses.map((h) => {
+            const statusKey = HYPOTHESIS_STATUS[h.status];
+            return (
+              <li key={h.text}>
+                <span className={`status-chip hypothesis-${h.status}`}>{statusKey ? t(statusKey) : h.status}</span> {h.text}
+                {h.suggestedCheck && <div className="muted">{t("explain.check", { check: h.suggestedCheck })}</div>}
+                {h.evidenceIds && h.evidenceIds.length > 0 && <EvidenceChips ids={h.evidenceIds} index={index} onSelect={onSelect} />}
+              </li>
+            );
+          })}
         </ul>
       )}
 
-      <span className="section-label">Unknowns</span>
+      <span className="section-label">{t("section.unknowns")}</span>
       {explanation.unknowns.length === 0 ? (
-        <p className="ok">No gaps on this path.</p>
+        <p className="ok">{t("explain.noGaps")}</p>
       ) : (
         <ul className="unknown-list">
           {explanation.unknowns.map((u) => (
             <li key={u}>
-              <span className="status-chip unknown">Need More Evidence</span> {u}
+              <span className="status-chip unknown">{t("chip.needMoreEvidence")}</span> {u}
             </li>
           ))}
         </ul>
@@ -103,7 +115,7 @@ export function ExplainView({ response, onSelect }: { response: ExplainResponse;
 
       {explanation.nextSteps.length > 0 && (
         <>
-          <span className="section-label">Next steps</span>
+          <span className="section-label">{t("section.nextSteps")}</span>
           <ul className="next-steps">
             {explanation.nextSteps.map((s) => (
               <li key={s}>{s}</li>
@@ -113,37 +125,37 @@ export function ExplainView({ response, onSelect }: { response: ExplainResponse;
       )}
 
       <div className="audit">
-        <span className="section-label">Audit</span>
+        <span className="section-label">{t("section.audit")}</span>
         <dl className="metadata">
           <div>
-            <dt>provider</dt>
+            <dt>{t("audit.provider")}</dt>
             <dd>
               <code>{explanation.audit.provider}</code>
             </dd>
           </div>
           <div>
-            <dt>model</dt>
+            <dt>{t("audit.model")}</dt>
             <dd>
               <code>{explanation.audit.model}</code>
             </dd>
           </div>
           <div>
-            <dt>prompt</dt>
+            <dt>{t("audit.prompt")}</dt>
             <dd>
               <code>{explanation.audit.promptVersion}</code>
             </dd>
           </div>
           <div>
-            <dt>timestamp</dt>
+            <dt>{t("audit.timestamp")}</dt>
             <dd>{new Date(explanation.audit.timestamp).toLocaleString()}</dd>
           </div>
           <div>
-            <dt>evidence ids</dt>
+            <dt>{t("audit.evidenceIds")}</dt>
             <dd>{explanation.audit.evidenceIds.length}</dd>
           </div>
           {explanation.audit.note && (
             <div>
-              <dt>note</dt>
+              <dt>{t("audit.note")}</dt>
               <dd>{explanation.audit.note}</dd>
             </div>
           )}
@@ -151,7 +163,7 @@ export function ExplainView({ response, onSelect }: { response: ExplainResponse;
       </div>
 
       <button type="button" className="btn ghost small" style={{ marginTop: 10 }} onClick={() => setShowEvidence((v) => !v)}>
-        {showEvidence ? "Hide" : "Show"} evidence bundle ({evidence.length})
+        {showEvidence ? t("explain.hideBundle", { n: evidence.length }) : t("explain.showBundle", { n: evidence.length })}
       </button>
       {showEvidence && (
         <ul className="evidence-bundle">

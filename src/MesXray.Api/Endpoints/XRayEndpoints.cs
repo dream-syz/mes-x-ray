@@ -205,7 +205,7 @@ public static class XRayEndpoints
         {
             var runtime = ResolveTrace(request.TraceId, traces);
             var trace = tracer.Trace(request.FocusNodeId, runtime, request.Scope);
-            var bundle = bundles.Build(trace, runtime, request.Question, request.AllowedEvidenceIds, options.MaxEvidenceItems);
+            var bundle = bundles.Build(trace, runtime, request.Question, request.AllowedEvidenceIds, options.MaxEvidenceItems, request.Language);
             var explanation = await investigator.ExplainAsync(bundle, ct);
             return Results.Ok(new ExplainResponse(explanation, bundle.Items, trace.Field.Id, bundle.TraceId, bundle.Scope));
         }).WithName("Explain");
@@ -218,7 +218,7 @@ public static class XRayEndpoints
                 ?? (bootstrapper.Case is { KeyFields.Count: > 0 } c ? c.KeyFields[0] : null)
                 ?? throw new ArgumentException("focusNodeId is required.");
             var trace = tracer.Trace(focus, runtime, request.Scope);
-            var bundle = bundles.Build(trace, runtime, request.Question, request.AllowedEvidenceIds, options.MaxEvidenceItems);
+            var bundle = bundles.Build(trace, runtime, request.Question, request.AllowedEvidenceIds, options.MaxEvidenceItems, request.Language);
             var explanation = await investigator.InvestigateAsync(bundle, ct);
             return Results.Ok(new ExplainResponse(explanation, bundle.Items, trace.Field.Id, bundle.TraceId, bundle.Scope));
         }).WithName("Investigate");
@@ -226,7 +226,7 @@ public static class XRayEndpoints
         api.MapPost("/ai/impact-summary", async Task<IResult> (ImpactSummaryBody body, ImpactService impacts, IAiInvestigator investigator, CancellationToken ct) =>
         {
             var impact = impacts.Analyze(body.NodeId);
-            var explanation = await investigator.SummarizeImpactAsync(impact, ct);
+            var explanation = await investigator.SummarizeImpactAsync(impact, body.Language, ct);
             return Results.Ok(new { explanation, impact.Summary, impact.KeyPaths });
         }).WithName("ImpactSummary");
     }

@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.RegularExpressions;
 using MesXray.AI.Contracts;
 using MesXray.AI.Evidence;
@@ -10,7 +9,8 @@ namespace MesXray.AI.Investigators;
 /// <summary>
 /// Deterministic, offline investigator. Every statement is derived from the evidence bundle by explicit rules and
 /// cites the ids it used, so the demo works without any LLM and the output is reproducible. It is also the fallback
-/// and the validator's reference for the LLM-backed investigator.
+/// and the validator's reference for the LLM-backed investigator. Sentences come from <see cref="InvestigatorPhrases"/>
+/// in the bundle's language; identifiers, expressions, values and evidence ids are never translated.
 /// </summary>
 public sealed partial class RuleBasedInvestigator : IAiInvestigator
 {
@@ -34,8 +34,9 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
     public Task<Explanation> InvestigateAsync(EvidenceBundle bundle, CancellationToken cancellationToken = default)
         => Task.FromResult(Explain(bundle, investigate: true));
 
-    public Task<Explanation> SummarizeImpactAsync(ImpactResult impact, CancellationToken cancellationToken = default)
+    public Task<Explanation> SummarizeImpactAsync(ImpactResult impact, string? language = null, CancellationToken cancellationToken = default)
     {
+        var p = InvestigatorPhrases.For(language);
         var cited = new SortedSet<string>(StringComparer.Ordinal) { impact.Origin.Id };
         var facts = new List<KnownFact>();
 
@@ -48,27 +49,26 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
                 cited.Add(id);
             }
 
-            facts.Add(new KnownFact($"A change of {impact.Origin.Name} reaches {names[^1]} via {string.Join(" -> ", names)}.", evidence));
+            facts.Add(new KnownFact(p.ImpactReaches(impact.Origin.Name, names[^1], names), evidence));
         }
 
         var unknowns = impact.Affected
             .Where(a => a.Node.Status != NodeStatus.Known)
-            .Select(a => $"{a.Node.Name} ({a.Node.Id}) is {a.Node.Status}: downstream effects beyond it cannot be confirmed.")
+            .Select(a => p.ImpactUnknownNode(a.Node.Name, a.Node.Id, a.Node.Status))
             .ToList();
 
-        var summaryParts = impact.Summary.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Value} {kv.Key}");
         var summary = impact.Affected.Count == 0
-            ? $"No downstream node depends on {impact.Origin.Name}."
-            : $"{impact.Origin.Name} affects {impact.Affected.Count} downstream node(s): {string.Join(", ", summaryParts)}.";
+            ? p.ImpactNoDownstream(impact.Origin.Name)
+            : p.ImpactSummary(impact.Origin.Name, impact.Affected.Count, impact.Summary.OrderByDescending(kv => kv.Value));
 
         return Task.FromResult(new Explanation
         {
             Summary = summary,
             Steps =
             [
-                $"Started from {impact.Origin.Id}.",
-                $"Followed downstream (FlowsTo) and dependent (DependsOn) edges plus structural containment; {impact.Affected.Count} node(s) reached{(impact.Truncated ? " (truncated)" : string.Empty)}.",
-                $"Selected {impact.KeyPaths.Count} key path(s) ending at pages, APIs or JSON fields.",
+                p.ImpactStepStart(impact.Origin.Id),
+                p.ImpactStepFollowed(impact.Affected.Count, impact.Truncated),
+                p.ImpactStepKeyPaths(impact.KeyPaths.Count),
             ],
             KnownFacts = facts,
             Unknowns = unknowns,
@@ -80,6 +80,7 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
 
     private Explanation Explain(EvidenceBundle bundle, bool investigate)
     {
+        var p = InvestigatorPhrases.For(bundle.Language);
         var cited = new SortedSet<string>(StringComparer.Ordinal);
         var steps = new List<string>();
         var facts = new List<KnownFact>();
@@ -99,16 +100,16 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
 
         var focus = bundle.Focus;
         var root = bundle.Hops.Count > 0 ? bundle.Hops[0] : null;
-        steps.Add($"Resolved focus node {focus.Id} ({focus.Type}, {focus.Status}).");
+        steps.Add(p.StepResolvedFocus(focus.Id, focus.Type, focus.Status));
 
         if (focus.Status == NodeStatus.Unknown || root is null)
         {
             return new Explanation
             {
-                Summary = $"Unknown: {focus.Name} has no scanned definition, so nothing can be explained from evidence.",
+                Summary = p.SummaryUnknownFocus(focus.Name),
                 Steps = steps,
                 Unknowns = bundle.Unknowns,
-                NextSteps = [$"Scan or import the definition of {focus.Name} and rebuild the graph."],
+                NextSteps = [p.NextScanFocus(focus.Name)],
                 Confidence = 0.0,
                 Verdict = ExplainVerdict.Unknown,
                 Audit = Audit(cited, note: "focus-unknown"),
@@ -119,29 +120,29 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
         if (root.RuntimeEvidenceIds.Count > 0)
         {
             var ids = Cite(root.RuntimeEvidenceIds, [root.NodeId]);
-            facts.Add(new KnownFact($"Observed value: {string.Join("; ", root.RuntimeValueTexts)} (trace {bundle.TraceId}, {bundle.Environment}).", ids));
-            steps.Add($"Overlaid live trace {bundle.TraceId}{(bundle.Scope is null ? string.Empty : $" scoped to {bundle.Scope}")}.");
+            facts.Add(new KnownFact(p.FactObservedValue(string.Join("; ", root.RuntimeValueTexts), bundle.TraceId, bundle.Environment), ids));
+            steps.Add(p.StepOverlaidTrace(bundle.TraceId!, bundle.Scope));
         }
         else if (bundle.TraceId is not null)
         {
-            steps.Add($"Live trace {bundle.TraceId} carries no value for {focus.Name}.");
+            steps.Add(p.StepTraceNoValue(bundle.TraceId, focus.Name));
         }
         else
         {
-            steps.Add("No live trace supplied: static explanation only.");
+            steps.Add(p.StepNoLiveTrace());
         }
 
         // 2. Execution path.
         if (bundle.ExecutionPath.Count > 0)
         {
             var ids = Cite(bundle.ExecutionPath.Select(n => n.Id));
-            facts.Add(new KnownFact($"Execution path: {string.Join(" -> ", bundle.ExecutionPath.Select(n => n.Name))}.", ids));
-            steps.Add($"Reconstructed the static execution path with {bundle.ExecutionPath.Count} node(s).");
+            facts.Add(new KnownFact(p.FactExecutionPath(bundle.ExecutionPath.Select(n => n.Name)), ids));
+            steps.Add(p.StepExecutionPath(bundle.ExecutionPath.Count));
         }
 
         // 3. Lineage chain.
         var lineageHops = bundle.Hops.Where(h => h.Depth > 0 && !h.IsRepeat).ToList();
-        steps.Add($"Walked {lineageHops.Count} upstream hop(s) through serialization, Dapper mapping, SQL aliases and expressions.");
+        steps.Add(p.StepWalkedHops(lineageHops.Count));
 
         var childrenOf = BuildChildren(bundle.Hops);
         var parentOf = BuildParents(bundle.Hops);
@@ -155,17 +156,16 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
             }
 
             var ids = Cite([hop.ViaEdgeId, hop.NodeId, child.NodeId], hop.RuntimeEvidenceIds);
-            var value = hop.RuntimeValueTexts.Count > 0 ? $" (observed {string.Join("; ", hop.RuntimeValueTexts)})" : string.Empty;
-            facts.Add(new KnownFact($"{child.Name} {Verb(hop.ViaRelation!.Value)} {Qualify(hop)}{value}.", ids));
+            facts.Add(new KnownFact(p.FactLink(child.Name, hop.ViaRelation!.Value, p.Qualify(hop), hop.RuntimeValueTexts), ids));
         }
 
         // 4. Expressions and branches.
         foreach (var expr in bundle.HopsOfType(NodeType.Expression))
         {
             var produced = parentOf.GetValueOrDefault(expr);
-            var producedName = produced?.Name ?? "value";
+            var producedName = produced?.Name ?? p.DefaultProducedName;
             var exprIds = Cite([expr.NodeId, expr.ViaEdgeId, produced?.NodeId]);
-            facts.Add(new KnownFact($"{producedName} = {expr.Expression ?? expr.Name}.", exprIds));
+            facts.Add(new KnownFact(p.FactExpression(producedName, expr.Expression ?? expr.Name), exprIds));
 
             var children = childrenOf.GetValueOrDefault(expr) ?? [];
             var control = children.FirstOrDefault(c => c.ViaRelation == RelationType.ControlledBy);
@@ -174,7 +174,7 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
             foreach (var branch in branches)
             {
                 var ids = Cite(branch.Select(b => b.ViaEdgeId), branch.Select(b => b.NodeId));
-                facts.Add(new KnownFact($"Branch `{branch.Key}` of {producedName} uses {string.Join(", ", branch.Select(Qualify))}.", ids));
+                facts.Add(new KnownFact(p.FactBranchUses(branch.Key, producedName, branch.Select(p.Qualify)), ids));
             }
 
             if (control is not null)
@@ -183,50 +183,49 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
                 var controlValue = control.RuntimeValueTexts.Count > 0 ? control.RuntimeValueTexts[0] : null;
                 if (controlValue is null)
                 {
-                    facts.Add(new KnownFact($"Which branch of {producedName} applies is decided by system parameter {control.Name}; its runtime value was not observed.", controlIds));
-                    nextSteps.Add($"Run read_system_parameter('{control.Name}') to determine the active branch.");
+                    facts.Add(new KnownFact(p.FactBranchUndecided(producedName, control.Name), controlIds));
+                    nextSteps.Add(p.NextReadParameter(control.Name));
                     continue;
                 }
 
-                facts.Add(new KnownFact($"{producedName} is controlled by {control.Name} = {ValueOf(controlValue)} at runtime.", controlIds));
+                facts.Add(new KnownFact(p.FactControlledBy(producedName, control.Name, ValueOf(controlValue)), controlIds));
                 var active = ActiveBranch(ValueOf(controlValue), branches.Select(b => b.Key).ToList());
                 if (active is null)
                 {
-                    hypotheses.Add(new Hypothesis($"No branch condition of {producedName} matches {control.Name} = {ValueOf(controlValue)}; the CASE may yield NULL.", HypothesisStatus.Unverified, "Compare the CASE conditions with the observed parameter value."));
+                    hypotheses.Add(new Hypothesis(p.HypothesisNoBranchMatches(producedName, control.Name, ValueOf(controlValue)), HypothesisStatus.Unverified, p.CheckCompareCase));
                     continue;
                 }
 
                 var activeSources = branches.First(b => b.Key == active).ToList();
                 var activeIds = Cite(activeSources.Select(s => s.ViaEdgeId), activeSources.Select(s => s.NodeId), control.RuntimeEvidenceIds);
-                facts.Add(new KnownFact($"Active branch for this trace: `{active}` -> {string.Join(", ", activeSources.Select(Qualify))}.", activeIds));
-                steps.Add($"Evaluated CASE conditions of {producedName} against {control.Name} = {ValueOf(controlValue)}.");
+                facts.Add(new KnownFact(p.FactActiveBranch(active, activeSources.Select(p.Qualify)), activeIds));
+                steps.Add(p.StepEvaluatedCase(producedName, control.Name, ValueOf(controlValue)));
 
                 var unknownSources = activeSources.Where(s => s.Status != NodeStatus.Known).ToList();
                 foreach (var unknown in unknownSources)
                 {
                     hypotheses.Add(new Hypothesis(
-                        $"{producedName} is determined inside {unknown.Name}, whose definition is not available; the observed value cannot be verified further.",
+                        p.HypothesisUnknownSource(producedName, unknown.Name),
                         HypothesisStatus.Unverified,
-                        $"Import the definition of {unknown.Name} (or capture its return value in TEST) and rescan.",
+                        p.CheckImportDefinition(unknown.Name),
                         Cite([unknown.NodeId])));
-                    nextSteps.Add($"Scan the definition of {unknown.Name}.");
+                    nextSteps.Add(p.NextScanDefinition(unknown.Name));
                 }
 
                 if (investigate)
                 {
-                    AddIsNullHypothesis(root, activeSources, producedName, hypotheses, Cite);
+                    AddIsNullHypothesis(p, root, activeSources, producedName, hypotheses, Cite);
                 }
             }
         }
 
         // 5. Base columns and parameters.
-        var columns = bundle.HopsOfType(NodeType.Column).Select(h => h.Name).Distinct(StringComparer.Ordinal).ToList();
-        if (columns.Count > 0)
+        var columnHops = bundle.HopsOfType(NodeType.Column).ToList();
+        if (columnHops.Count > 0)
         {
-            var columnHops = bundle.HopsOfType(NodeType.Column).ToList();
             var ids = Cite(columnHops.Select(h => h.NodeId));
             var tables = columnHops.Select(h => h.ContainerNodeId).Where(t => t is not null).Distinct(StringComparer.Ordinal).Select(t => NodeIds.OwnerKeyOf(t!)).ToList();
-            facts.Add(new KnownFact($"Base table columns involved: {string.Join(", ", columnHops.Select(Qualify).Distinct(StringComparer.Ordinal))}{(tables.Count > 0 ? $" (tables {string.Join(", ", tables)})" : string.Empty)}.", ids));
+            facts.Add(new KnownFact(p.FactBaseColumns(columnHops.Select(p.Qualify).Distinct(StringComparer.Ordinal), tables), ids));
         }
 
         foreach (var parameter in bundle.HopsOfType(NodeType.SystemParameter).DistinctBy(h => h.NodeId))
@@ -237,30 +236,30 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
             }
 
             var ids = Cite([parameter.NodeId, parameter.ViaEdgeId], parameter.RuntimeEvidenceIds);
-            var value = parameter.RuntimeValueTexts.Count > 0 ? $" = {ValueOf(parameter.RuntimeValueTexts[0])}" : string.Empty;
-            facts.Add(new KnownFact($"System parameter {parameter.Name}{value} feeds {parentOf.GetValueOrDefault(parameter)?.Name ?? focus.Name}.", ids));
+            var value = parameter.RuntimeValueTexts.Count > 0 ? ValueOf(parameter.RuntimeValueTexts[0]) : null;
+            facts.Add(new KnownFact(p.FactParameterFeeds(parameter.Name, value, parentOf.GetValueOrDefault(parameter)?.Name ?? focus.Name), ids));
         }
 
         // 6. Unknowns & pending.
         var unknownHops = bundle.Hops.Where(h => h.Status != NodeStatus.Known && !h.IsRepeat).DistinctBy(h => h.NodeId).ToList();
         foreach (var pending in unknownHops.Where(h => h.Status == NodeStatus.Pending))
         {
-            nextSteps.Add($"Finish scanning {pending.Name} (marked Pending).");
+            nextSteps.Add(p.NextFinishPending(pending.Name));
         }
 
         var unknowns = bundle.Unknowns.ToList();
-        steps.Add($"Checked definitions: {unknownHops.Count} Unknown/Pending node(s) on the path.");
+        steps.Add(p.StepCheckedDefinitions(unknownHops.Count));
 
         if (investigate && root.RuntimeEvidenceIds.Count == 0 && bundle.TraceId is not null)
         {
-            unknowns.Add($"No runtime value for {focus.Name} in trace {bundle.TraceId}{(bundle.Scope is null ? string.Empty : $" / {bundle.Scope}")}.");
-            nextSteps.Add("Run trace_pick_order for the order to capture the value.");
+            unknowns.Add(p.UnknownNoRuntimeValue(focus.Name, bundle.TraceId, bundle.Scope));
+            nextSteps.Add(p.NextRunTracePickOrder);
         }
 
         var confidence = Confidence(unknownHops.Count, facts.Count, root.RuntimeEvidenceIds.Count > 0);
         var verdict = unknowns.Count == 0 && unknownHops.Count == 0 ? ExplainVerdict.Known : ExplainVerdict.NeedMoreEvidence;
 
-        var summary = BuildSummary(bundle, root, verdict, unknownHops, facts);
+        var summary = p.Summary(bundle.Focus.Name, facts.Count, OriginatingProcedure(bundle), root.RuntimeValueTexts, verdict, unknownHops.Select(h => h.Name));
 
         return new Explanation
         {
@@ -276,22 +275,15 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
         };
     }
 
-    private static string BuildSummary(EvidenceBundle bundle, HopSummary root, ExplainVerdict verdict, List<HopSummary> unknownHops, List<KnownFact> facts)
+    /// <summary>The stored procedure the value originates in: the first SP hop, else the SP on the execution path, else the owner of a SQL hop.</summary>
+    private static string? OriginatingProcedure(EvidenceBundle bundle)
     {
-        var sp = bundle.HopsOfType(NodeType.StoredProcedure).FirstOrDefault()
-                 ?? bundle.ExecutionPath.Where(n => n.Type == NodeType.StoredProcedure).Select(n => new HopSummary(0, n.Id, n.Name, n.Type, n.Status, null, null, null, null, null, null, [], [], false)).FirstOrDefault();
-        var spName = sp?.Name ?? bundle.Hops.Where(h => h.ContainerNodeId is not null && h.ContainerNodeId.StartsWith("sp:", StringComparison.Ordinal)).Select(h => NodeIds.OwnerKeyOf(h.ContainerNodeId!)).FirstOrDefault();
-        var value = root.RuntimeValueTexts.Count > 0 ? $" Observed {string.Join("; ", root.RuntimeValueTexts)}." : string.Empty;
-        var origin = spName is null ? string.Empty : $" It originates in {spName}.";
-        var caveat = verdict switch
-        {
-            ExplainVerdict.Known => " Every hop is backed by scanned code or runtime evidence.",
-            _ => $" Need more evidence: {string.Join(", ", unknownHops.Select(h => h.Name))}.",
-        };
-        return $"{bundle.Focus.Name} is explained through {facts.Count} evidence-backed fact(s).{origin}{value}{caveat}";
+        var sp = bundle.HopsOfType(NodeType.StoredProcedure).FirstOrDefault()?.Name
+                 ?? bundle.ExecutionPath.FirstOrDefault(n => n.Type == NodeType.StoredProcedure)?.Name;
+        return sp ?? bundle.Hops.Where(h => h.ContainerNodeId is not null && h.ContainerNodeId.StartsWith("sp:", StringComparison.Ordinal)).Select(h => NodeIds.OwnerKeyOf(h.ContainerNodeId!)).FirstOrDefault();
     }
 
-    private static void AddIsNullHypothesis(HopSummary root, List<HopSummary> activeSources, string producedName, List<Hypothesis> hypotheses, Func<IEnumerable<string?>[], string[]> cite)
+    private static void AddIsNullHypothesis(InvestigatorPhrases p, HopSummary root, List<HopSummary> activeSources, string producedName, List<Hypothesis> hypotheses, Func<IEnumerable<string?>[], string[]> cite)
     {
         var observed = root.RuntimeValueTexts.Select(ValueOf).FirstOrDefault();
         if (observed is null)
@@ -305,9 +297,9 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
             if (match.Success && string.Equals(match.Groups["default"].Value.Trim(), observed, StringComparison.OrdinalIgnoreCase))
             {
                 hypotheses.Add(new Hypothesis(
-                    $"{producedName} equals the ISNULL fallback {observed} of `{expression}`; the inner value may have been NULL (e.g. the function returned no row).",
+                    p.HypothesisIsNullFallback(producedName, observed, expression!),
                     HypothesisStatus.Unverified,
-                    "Execute the inner function for this material in TEST and check whether it returns NULL.",
+                    p.CheckInnerFunction,
                     cite([root.RuntimeEvidenceIds, activeSources.Select(s => s.NodeId)])));
             }
         }
@@ -362,35 +354,6 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
         var idx = runtimeText.IndexOf(" = ", StringComparison.Ordinal);
         var raw = idx < 0 ? runtimeText : runtimeText[(idx + 3)..];
         return raw.Trim().Trim('"');
-    }
-
-    private static string Verb(RelationType relation) => relation switch
-    {
-        RelationType.SerializesAs => "is the JSON serialization of",
-        RelationType.MapsTo => "is mapped by name (Dapper) from",
-        RelationType.AliasOf => "is an alias of",
-        RelationType.Returns => "is returned by",
-        RelationType.EnrichedBy => "is enriched by",
-        RelationType.Produces => "is produced by",
-        RelationType.DerivedFrom => "derives from",
-        RelationType.ComputedBy => "is computed by",
-        RelationType.ControlledBy => "is controlled by",
-        _ => relation.ToString().ToLowerInvariant(),
-    };
-
-    private static string Qualify(HopSummary hop)
-    {
-        var owner = hop.ContainerNodeId is null ? null : NodeIds.OwnerKeyOf(hop.ContainerNodeId);
-        var status = hop.Status == NodeStatus.Known ? string.Empty : $" [{hop.Status}]";
-        return hop.Type switch
-        {
-            NodeType.Column when owner is not null => $"{owner}.{hop.Name}{status}",
-            NodeType.ResultColumn or NodeType.IntermediateColumn when owner is not null => $"{owner}.{hop.Name}{status}",
-            NodeType.Field when owner is not null => $"{NodeIds.LeafName(hop.ContainerNodeId!)}.{hop.Name}{status}",
-            NodeType.Function => $"function {hop.Name}{status}",
-            NodeType.SystemParameter => $"parameter {hop.Name}{status}",
-            _ => $"{hop.Name}{status}",
-        };
     }
 
     private static double Confidence(int unknownCount, int factCount, bool hasRuntime)

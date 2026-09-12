@@ -17,6 +17,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { RuntimeValue, Subgraph, TraceHop } from "../../api/types";
 import type { XRayController } from "../../state/useXRay";
+import { useI18n, type I18n } from "../../lib/I18nContext";
 import { GRAPH_COLORS } from "../../lib/presentation";
 import { layoutGraph, type XRayFlowNode } from "./layout";
 import { XRayNode } from "./XRayNode";
@@ -30,18 +31,18 @@ function collectHopValues(hop: TraceHop, into: Map<string, RuntimeValue[]>, high
   for (const source of hop.sources) collectHopValues(source, into, highlighted);
 }
 
-function pickSubgraph(controller: XRayController): { subgraph: Subgraph | null; title: string; scanKey: string } {
+function pickSubgraph(controller: XRayController, t: I18n["t"]): { subgraph: Subgraph | null; title: string; scanKey: string } {
   const { state } = controller;
-  if (state.mode === "architecture") return { subgraph: state.architecture, title: "Architecture: page, API, service, SQL", scanKey: "architecture" };
-  if (state.tab === "impact" && state.impact) return { subgraph: state.impact.graph, title: `Impact of ${state.impact.origin.name}`, scanKey: `impact:${state.impact.origin.id}` };
+  if (state.mode === "architecture") return { subgraph: state.architecture, title: t("graph.architecture"), scanKey: "architecture" };
+  if (state.tab === "impact" && state.impact) return { subgraph: state.impact.graph, title: t("graph.impactOf", { name: state.impact.origin.name }), scanKey: `impact:${state.impact.origin.id}` };
   if (state.trace) {
     return {
       subgraph: state.trace.graph,
-      title: `Trace Source ${state.trace.field.id}${state.trace.scope ? ` @ ${state.trace.scope}` : ""}`,
+      title: `${t("graph.traceOf", { field: state.trace.field.id })}${state.trace.scope ? ` @ ${state.trace.scope}` : ""}`,
       scanKey: `trace:${state.trace.field.id}:${state.trace.scope ?? ""}:${state.trace.traceId ?? ""}`,
     };
   }
-  return { subgraph: state.architecture, title: "Architecture (run a trace to see field lineage)", scanKey: "architecture" };
+  return { subgraph: state.architecture, title: t("graph.architectureHint"), scanKey: "architecture" };
 }
 
 /** A single left-to-right sweep when a new trace or impact result arrives: the X-ray has just been taken. */
@@ -71,7 +72,8 @@ function LevelOfDetail({ target }: { target: RefObject<HTMLDivElement | null> })
 
 function Canvas({ controller }: { controller: XRayController }) {
   const { state, selectNode } = controller;
-  const { subgraph, title, scanKey } = pickSubgraph(controller);
+  const { t, lang } = useI18n();
+  const { subgraph, title, scanKey } = pickSubgraph(controller, t);
   const { fitView } = useReactFlow();
   const canvasRef = useRef<HTMLDivElement | null>(null);
 
@@ -123,8 +125,8 @@ function Canvas({ controller }: { controller: XRayController }) {
       }
     }
 
-    return layoutGraph({ nodes: subgraph.nodes, edges: subgraph.edges, runtimeValues, highlighted, pathNodeIds, focusId, aspect });
-  }, [subgraph, state.mode, state.trace, state.impact, state.tab, state.live, state.scope, state.architecture, state.overview, aspect]);
+    return layoutGraph({ nodes: subgraph.nodes, edges: subgraph.edges, runtimeValues, highlighted, pathNodeIds, focusId, aspect, lang });
+  }, [subgraph, state.mode, state.trace, state.impact, state.tab, state.live, state.scope, state.architecture, state.overview, aspect, lang]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<XRayFlowNode>(layout.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(layout.edges);
@@ -174,21 +176,21 @@ function Canvas({ controller }: { controller: XRayController }) {
   return (
     <>
       <div className="pane-header">
-        <h2>Evidence Graph</h2>
+        <h2>{t("graph.title")}</h2>
         <span className="pane-sub">{title}</span>
-        {subgraph?.truncated && <span className="chip-warn">truncated</span>}
+        {subgraph?.truncated && <span className="chip-warn">{t("graph.truncated")}</span>}
         <div className="legend">
           <span className="legend-item">
-            <i /> traced path, in data-flow direction
+            <i /> {t("graph.legendPath")}
           </span>
           <span className="legend-item">
-            <i className="legend-value" /> live value
+            <i className="legend-value" /> {t("graph.legendValue")}
           </span>
           <span className="legend-item">
-            <i className="legend-gap" /> unknown or pending
+            <i className="legend-gap" /> {t("graph.legendGap")}
           </span>
           <span className="legend-item">
-            <i className="legend-structural" /> structural
+            <i className="legend-structural" /> {t("graph.legendStructural")}
           </span>
         </div>
       </div>

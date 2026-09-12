@@ -19,5 +19,8 @@ public interface IAiInvestigator
     Task<Explanation> InvestigateAsync(EvidenceBundle bundle, CancellationToken cancellationToken = default);
 
     /// <summary>Impact Summary: which APIs / UI fields are affected by a change of the origin node.</summary>
-    Task<Explanation> SummarizeImpactAsync(ImpactResult impact, CancellationToken cancellationToken = default);
+    /// <param name="impact">Downstream analysis to summarise.</param>
+    /// <param name="language"><c>en</c> (default) or <c>zh</c>; see <see cref="AiLanguage"/>.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    Task<Explanation> SummarizeImpactAsync(ImpactResult impact, string? language = null, CancellationToken cancellationToken = default);
 }

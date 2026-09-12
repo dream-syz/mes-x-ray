@@ -1,6 +1,7 @@
 import dagre from "@dagrejs/dagre";
 import type { Edge, Node } from "@xyflow/react";
 import type { GraphEdge, GraphNode, RuntimeValue } from "../../api/types";
+import { relationLabel, type Lang } from "../../lib/i18n";
 import { GRAPH_COLORS } from "../../lib/presentation";
 
 /** Rank direction: `BT` puts the surface (page, JSON field) on top and SQL at the bottom; `LR` reads left to right. */
@@ -43,6 +44,8 @@ export interface LayoutInput {
   focusId: string | null;
   /** Canvas width / height. Used to pick the rank direction that fills the canvas best. */
   aspect: number;
+  /** UI language for the edge labels (relation names); node names and conditions are never translated. */
+  lang: Lang;
 }
 
 function rank(input: LayoutInput, ids: Set<string>, rankdir: RankDirection) {
@@ -104,7 +107,7 @@ export function layoutGraph(input: LayoutInput): { nodes: XRayFlowNode[]; edges:
     .map((edge) => {
       const [source, target] = flowPair(edge);
       const condition = edge.metadata?.condition;
-      const relation = edge.relationType.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+      const relation = relationLabel(input.lang, edge.relationType);
       const label = condition ? `${relation}  ${condition}` : relation;
       const structural = edge.direction === "structural";
       // An edge is lit when it is part of the lineage itself, or when it joins two lit nodes of the execution path.

@@ -22,6 +22,9 @@ public static class PromptLibrary
                 : "Explain where the focus value comes from, how it is computed and under which conditions, using only the evidence bundle.",
             ["focus"] = EvidenceBundleBuilder.DescribeNode(bundle.Focus) + $" (id {bundle.Focus.Id})",
             ["question"] = bundle.Question ?? "(none - explain the focus value)",
+            ["language"] = bundle.Language == Investigators.AiLanguage.Chinese
+                ? "Simplified Chinese (zh-CN) for every summary, step, fact, hypothesis, unknown and next step. Keep node ids, SQL, expressions, values and evidence ids verbatim."
+                : "English.",
             ["trace"] = bundle.TraceId is null ? "(no live trace)" : $"traceId={bundle.TraceId} scope={bundle.Scope ?? "-"} environment={bundle.Environment ?? "-"}",
             ["executionPath"] = bundle.ExecutionPath.Count == 0 ? "(unknown)" : string.Join(" -> ", bundle.ExecutionPath.Select(n => $"{n.Name} [{n.Id}]")),
             ["hops"] = RenderHops(bundle),

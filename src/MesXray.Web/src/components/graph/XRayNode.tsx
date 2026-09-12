@@ -1,11 +1,13 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Warning } from "@phosphor-icons/react";
 import type { CSSProperties } from "react";
-import { LAYERS, TYPE_LABELS, formatValue, shortName } from "../../lib/presentation";
+import { useI18n } from "../../lib/I18nContext";
+import { formatValue, shortName } from "../../lib/presentation";
 import type { XRayFlowNode } from "./layout";
 
 export function XRayNode({ data, selected }: NodeProps<XRayFlowNode>) {
   const { node, runtimeValues, highlighted, focus, onPath, dimmed, index, direction } = data;
+  const { t, type, layer, statusShort } = useI18n();
   const gap = node.status !== "known";
   // Edges run in data-flow direction: upward when ranked bottom-to-top, rightward when ranked left-to-right.
   const [targetSide, sourceSide] = direction === "BT" ? [Position.Bottom, Position.Top] : [Position.Left, Position.Right];
@@ -25,14 +27,14 @@ export function XRayNode({ data, selected }: NodeProps<XRayFlowNode>) {
     <div className={classes} style={{ "--i": index } as CSSProperties} title={node.qualifiedName ?? node.id}>
       <Handle type="target" position={targetSide} className="handle" />
       <div className="xray-node-type">
-        <span>{TYPE_LABELS[node.type] ?? node.type}</span>
-        <span className="layer-tag">{LAYERS[node.layer]?.label ?? node.layer}</span>
+        <span>{type(node.type)}</span>
+        <span className="layer-tag">{layer(node.layer)}</span>
       </div>
       <div className="xray-node-name">{shortName(node)}</div>
       {gap && (
         <div className="xray-node-gap">
           <Warning size={12} weight="bold" />
-          {node.status === "pending" ? "Pending" : "Unknown"}: need more evidence
+          {t("node.gap", { status: statusShort(node.status) })}
         </div>
       )}
       {runtimeValues.length > 0 && (

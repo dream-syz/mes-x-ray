@@ -7,6 +7,9 @@
 # Question
 {{question}}
 
+# Answer language
+{{language}}
+
 # Live trace
 {{trace}}
 

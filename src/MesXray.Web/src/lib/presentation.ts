@@ -1,17 +1,11 @@
-import type { GraphNode, Layer, NodeStatus, NodeType } from "../api/types";
+import type { GraphNode } from "../api/types";
 
 /**
- * Layers (design §8): Web / API / Service / Data / Config. The graph is monochrome on purpose: the layout already
- * orders layers left to right, and the single accent colour is reserved for what the X-ray reveals (traced path,
- * selection, live evidence). Layers are therefore labelled, not coloured.
+ * The graph is monochrome on purpose: the layout already orders the layers (design §8: Web / API / Service / Data /
+ * Config) in data-flow direction, and the single accent colour is reserved for what the X-ray reveals (traced path,
+ * selection, live evidence). Layers, types, statuses and relations are therefore labelled, not coloured; the labels
+ * live in `i18n.ts` because they follow the UI language.
  */
-export const LAYERS: Record<Layer, { label: string }> = {
-  web: { label: "Web" },
-  api: { label: "API" },
-  service: { label: "Service" },
-  data: { label: "Data" },
-  config: { label: "Config" },
-};
 
 /** Colours that must be passed as values (SVG markers, minimap); everything else uses the CSS variables. */
 export const GRAPH_COLORS = {
@@ -23,54 +17,6 @@ export const GRAPH_COLORS = {
   nodeDim: "#1a1f29",
   mask: "rgba(10,13,18,0.72)",
 };
-
-export const TYPE_LABELS: Record<NodeType, string> = {
-  page: "Page",
-  jsonField: "JSON field",
-  api: "API",
-  method: "Method",
-  model: "Model",
-  field: "Property",
-  storedProcedure: "Stored procedure",
-  resultColumn: "Result column",
-  function: "Function",
-  table: "Table",
-  column: "Column",
-  intermediate: "CTE / temp table",
-  intermediateColumn: "Intermediate column",
-  expression: "Expression",
-  systemParameter: "System parameter",
-  branch: "Branch",
-};
-
-export const STATUS_LABELS: Record<NodeStatus, string> = {
-  known: "Known",
-  pending: "Pending",
-  unknown: "Unknown - Need More Evidence",
-};
-
-export const RELATION_LABELS: Record<string, string> = {
-  calls: "calls",
-  handledBy: "handled by",
-  executesSp: "executes SP",
-  returns: "returns",
-  mapsTo: "maps to",
-  serializesAs: "serializes as",
-  enrichedBy: "enriched by",
-  aliasOf: "alias of",
-  derivedFrom: "derived from",
-  controlledBy: "controlled by",
-  computedBy: "computed by",
-  produces: "produces",
-  reads: "reads",
-  usesParameter: "uses parameter",
-  contains: "contains",
-  ofType: "of type",
-  hasBranch: "has branch",
-};
-
-export const relationLabel = (relation: string | null | undefined): string =>
-  relation ? RELATION_LABELS[relation] ?? relation.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase() : "";
 
 export const shortName = (node: GraphNode): string => {
   switch (node.type) {

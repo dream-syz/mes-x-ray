@@ -43,8 +43,8 @@ public sealed class LlmInvestigator : IAiInvestigator
         => RunAsync(bundle, investigate: true, cancellationToken);
 
     /// <summary>Impact summaries are purely structural; the rule engine is authoritative.</summary>
-    public Task<Explanation> SummarizeImpactAsync(ImpactResult impact, CancellationToken cancellationToken = default)
-        => _fallback.SummarizeImpactAsync(impact, cancellationToken);
+    public Task<Explanation> SummarizeImpactAsync(ImpactResult impact, string? language = null, CancellationToken cancellationToken = default)
+        => _fallback.SummarizeImpactAsync(impact, language, cancellationToken);
 
     private async Task<Explanation> RunAsync(EvidenceBundle bundle, bool investigate, CancellationToken cancellationToken)
     {

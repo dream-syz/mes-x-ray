@@ -31,7 +31,7 @@ public sealed record PickOrderRequestBody(string OrderNo, string? Facility = nul
 public sealed record ToolCallBody(string Tool, Dictionary<string, string>? Arguments = null);
 
 /// <summary>Body of <c>POST /api/xray/ai/impact-summary</c>.</summary>
-public sealed record ImpactSummaryBody(string NodeId);
+public sealed record ImpactSummaryBody(string NodeId, string? Language = null);
 
 /// <summary>Explanation plus the evidence the AI was allowed to cite, so the UI can render evidence chips.</summary>
 public sealed record ExplainResponse(Explanation Explanation, IReadOnlyList<EvidenceItem> Evidence, string FocusNodeId, string? TraceId, string? Scope);

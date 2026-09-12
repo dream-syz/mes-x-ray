@@ -5,16 +5,19 @@ Design §14. Everything below runs offline from `fixtures/pick-order-details`; n
 ## Before the demo
 
 ```bash
-scripts/xray.sh start --open      # builds, starts API :5080 + UI :5173, waits for health, opens Scene 3
+scripts/xray.sh demo              # builds, starts API :5080 + UI :5173, waits for health, prints every scene's
+                                  # deep link on the port actually in use, opens Scene 1
 scripts/xray.sh status            # api/web "healthy" before you begin
 ```
+
+If :5173 is busy (another Vite project, for example) the script moves the UI to the next free port and says so; use the printed URLs rather than the ones below. `XRAY_LANG=zh scripts/xray.sh demo` prints the links with `&lang=zh` so the UI starts in Chinese; the header has an EN / 中文 switch as well, and the AI text follows the switch.
 
 (Manual alternative: `dotnet run --project src/MesXray.Api` and `cd src/MesXray.Web && npm run dev`.)
 
 Check `GET http://localhost:5080/api/xray/health` → `status: ok`, 183 nodes, 307 edges, linker `unmappedColumns: []`.
 Pick order for the demo: **PICK0843858**, material **T12288** (Bracket, left, zinc plated), runtime trace `trace-demo-001`.
 
-Each scene has a deep link so you can recover instantly if a click goes wrong.
+Each scene has a deep link so you can recover instantly if a click goes wrong. The spoken version of this script, with a time budget and a screenshot per scene, is [`demo/talk-track.md`](demo/talk-track.md).
 
 ## Scene 1 — "It's just a 0" (Architecture)
 
@@ -56,6 +59,8 @@ Inspector → **Investigate**. The rule-based investigator (or the LLM, validate
 
 Talking point: the AI does not guess. Without the UDF definition it says so, and every sentence it does assert is bound to an evidence id.
 
+Language: flip EN / 中文 here if you want to show it. The explanation is re-requested in the other language; the verdict, confidence, evidence ids and values do not change, only the sentences do.
+
 Deep link: `/?order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1`
 
 ## Scene 5 — Impact of WMS_Enabled
@@ -74,7 +79,7 @@ Response Tree → `pickStorageBin.storageBin`. Lineage: `STRING_AGG(...)` over `
 
 Optional contrast: `destinationWagon.storageBin.location` ends explicitly at the **Pending** `GetStorageBin` method and the runtime-computed SP — Unknown by design, not a dead end.
 
-Deep link: `/?order=PICK0843858&field=json:pickOrderRows.pickStorageBin.storageBin&scope=T12288`
+Deep links: `/?order=PICK0843858&field=json:pickOrderRows.pickStorageBin.storageBin&scope=T12288`; contrast `/?field=json:pickOrderRows.destinationWagon.storageBin.location&explain=1`
 
 ## Scene 7 — Back to the whole graph
 
@@ -84,4 +89,6 @@ Header → **Architecture**. Closing point: X-Ray is not a chat UI; it is an exp
 
 - API not reachable → UI shows "Cannot reach the X-Ray API"; run `scripts/xray.sh restart --api-only --no-build` (logs: `scripts/xray.sh logs --api-only`).
 - Wrong pick order → 404 "No runtime data" in the status bar; use `PICK0843858`.
+- UI came up on another port (5174, 5175 …) → that is the fallback; `scripts/xray.sh status` shows the URL in use. Never kill the other program during the demo.
+- UI language wrong → click EN / 中文 in the header, or add `&lang=en` / `&lang=zh` to the deep link.
 - Anything else → reload the scene's deep link.

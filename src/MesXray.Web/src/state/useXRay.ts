@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { api, ApiError } from "../api/client";
 import type {
   CaseOverview,
@@ -10,11 +10,20 @@ import type {
   RuntimeTrace,
   Subgraph,
 } from "../api/types";
+import { detectLang, persistLang, translate, type Lang, type MessageKey, type Vars } from "../lib/i18n";
 
 export type ViewMode = "architecture" | "trace";
 export type InspectorTab = "details" | "trace" | "impact" | "explain";
 
+/** What produced the current explanation, so it can be re-requested in another language. */
+export interface ExplainRequest {
+  nodeId: string;
+  investigate: boolean;
+  question?: string;
+}
+
 export interface XRayState {
+  lang: Lang;
   overview: CaseOverview | null;
   architecture: Subgraph | null;
   responseFields: GraphNode[];
@@ -26,6 +35,7 @@ export interface XRayState {
   trace: FieldTrace | null;
   impact: ImpactResult | null;
   explanation: ExplainResponse | null;
+  explainRequest: ExplainRequest | null;
   tab: InspectorTab;
   busy: Partial<Record<"boot" | "live" | "details" | "trace" | "impact" | "explain", boolean>>;
   error: string | null;
@@ -37,16 +47,18 @@ type Action =
   | { type: "busy"; key: keyof XRayState["busy"]; value: boolean }
   | { type: "error"; message: string | null }
   | { type: "notice"; message: string | null }
+  | { type: "lang"; lang: Lang }
   | { type: "mode"; mode: ViewMode }
   | { type: "scope"; scope: string | null }
   | { type: "live"; trace: RuntimeTrace | null }
   | { type: "select"; nodeId: string; details: NodeDetailsResponse | null }
   | { type: "trace"; trace: FieldTrace | null }
   | { type: "impact"; impact: ImpactResult | null }
-  | { type: "explanation"; explanation: ExplainResponse | null }
+  | { type: "explanation"; explanation: ExplainResponse | null; request: ExplainRequest | null; keepTab?: boolean }
   | { type: "tab"; tab: InspectorTab };
 
 const initial: XRayState = {
+  lang: "en",
   overview: null,
   architecture: null,
   responseFields: [],
@@ -58,6 +70,7 @@ const initial: XRayState = {
   trace: null,
   impact: null,
   explanation: null,
+  explainRequest: null,
   tab: "details",
   busy: { boot: true },
   error: null,
@@ -74,6 +87,8 @@ function reduce(state: XRayState, action: Action): XRayState {
       return { ...state, error: action.message };
     case "notice":
       return { ...state, notice: action.message };
+    case "lang":
+      return { ...state, lang: action.lang };
     case "mode":
       return { ...state, mode: action.mode };
     case "scope":
@@ -87,7 +102,7 @@ function reduce(state: XRayState, action: Action): XRayState {
     case "impact":
       return { ...state, impact: action.impact, tab: action.impact ? "impact" : state.tab, mode: action.impact ? "trace" : state.mode };
     case "explanation":
-      return { ...state, explanation: action.explanation, tab: action.explanation ? "explain" : state.tab };
+      return { ...state, explanation: action.explanation, explainRequest: action.request, tab: action.explanation && !action.keepTab ? "explain" : state.tab };
     case "tab":
       return { ...state, tab: action.tab };
     default:
@@ -127,7 +142,15 @@ export function scenarioFromUrl(search: string): Scenario | null {
 }
 
 export function useXRay(caseId = "pick-order-details") {
-  const [state, dispatch] = useReducer(reduce, initial);
+  const [state, dispatch] = useReducer(reduce, initial, (base) => ({ ...base, lang: detectLang(window.location.search) }));
+
+  // Callbacks read the language through a ref so that changing it never re-creates them (the boot effect depends on
+  // runScenario and must not run twice).
+  const langRef = useRef(state.lang);
+  langRef.current = state.lang;
+  const userChangedLang = useRef(false);
+  useEffect(() => persistLang(state.lang, { updateUrl: userChangedLang.current }), [state.lang]);
+  const t = useCallback((key: MessageKey, vars?: Vars) => translate(langRef.current, key, vars), []);
 
   const run = useCallback(async <T,>(key: keyof XRayState["busy"], work: () => Promise<T>): Promise<T | undefined> => {
     dispatch({ type: "busy", key, value: true });
@@ -162,8 +185,12 @@ export function useXRay(caseId = "pick-order-details") {
           const details = await api.node(trace.field.id, live?.traceId, scope);
           dispatch({ type: "select", nodeId: trace.field.id, details });
           if (scenario.explain) {
-            const explanation = scenario.investigate && live ? await api.investigate(trace.field.id, live.traceId, scope) : await api.explain(trace.field.id, live?.traceId, scope);
-            dispatch({ type: "explanation", explanation });
+            const investigate = !!(scenario.investigate && live);
+            const explanation =
+              investigate && live
+                ? await api.investigate(trace.field.id, live.traceId, scope, undefined, langRef.current)
+                : await api.explain(trace.field.id, live?.traceId, scope, undefined, langRef.current);
+            dispatch({ type: "explanation", explanation, request: { nodeId: trace.field.id, investigate } });
           }
           dispatch({ type: "tab", tab: scenario.tab ?? (scenario.explain ? "explain" : "trace") });
         }
@@ -230,8 +257,9 @@ export function useXRay(caseId = "pick-order-details") {
       run("explain", async () => {
         const traceId = state.live?.traceId ?? null;
         const scope = state.live ? state.scope : null;
-        const explanation = investigate && traceId ? await api.investigate(nodeId, traceId, scope, question) : await api.explain(nodeId, traceId, scope, question);
-        dispatch({ type: "explanation", explanation });
+        const lang = langRef.current;
+        const explanation = investigate && traceId ? await api.investigate(nodeId, traceId, scope, question, lang) : await api.explain(nodeId, traceId, scope, question, lang);
+        dispatch({ type: "explanation", explanation, request: { nodeId, investigate: !!(investigate && traceId), question } });
         return explanation;
       }),
     [run, state.live, state.scope],
@@ -245,16 +273,40 @@ export function useXRay(caseId = "pick-order-details") {
         const scopes = Array.from(new Set(trace.evidence.map((e) => e.scope).filter((s): s is string => !!s)));
         const scope = materialNo && scopes.includes(materialNo) ? materialNo : state.scope && scopes.includes(state.scope) ? state.scope : scopes[0] ?? null;
         dispatch({ type: "scope", scope });
-        dispatch({ type: "notice", message: `Live trace ${trace.traceId} loaded from ${trace.environment} (${trace.evidence.length} evidence items).` });
+        dispatch({ type: "notice", message: t("notice.liveLoaded", { traceId: trace.traceId, env: trace.environment, n: trace.evidence.length }) });
         return trace;
       }),
-    [run, state.scope],
+    [run, state.scope, t],
   );
 
   const stopLiveTrace = useCallback(() => {
     dispatch({ type: "live", trace: null });
-    dispatch({ type: "notice", message: "Live trace cleared; showing static lineage only." });
-  }, []);
+    dispatch({ type: "notice", message: t("notice.liveCleared") });
+  }, [t]);
+
+  /** Switches the UI language and re-requests the open explanation so its sentences follow (ids and evidence are unchanged). */
+  const setLang = useCallback(
+    (lang: Lang) => {
+      if (lang === langRef.current) return;
+      langRef.current = lang;
+      userChangedLang.current = true;
+      dispatch({ type: "lang", lang });
+      if (state.notice) dispatch({ type: "notice", message: null });
+      const request = state.explainRequest;
+      if (!request) return;
+      void run("explain", async () => {
+        const traceId = state.live?.traceId ?? null;
+        const scope = state.live ? state.scope : null;
+        const explanation =
+          request.investigate && traceId
+            ? await api.investigate(request.nodeId, traceId, scope, request.question, lang)
+            : await api.explain(request.nodeId, traceId, scope, request.question, lang);
+        dispatch({ type: "explanation", explanation, request, keepTab: true });
+        return explanation;
+      });
+    },
+    [run, state.explainRequest, state.live, state.scope, state.notice],
+  );
 
   const setMode = useCallback((mode: ViewMode) => dispatch({ type: "mode", mode }), []);
   const setTab = useCallback((tab: InspectorTab) => dispatch({ type: "tab", tab }), []);
@@ -266,7 +318,7 @@ export function useXRay(caseId = "pick-order-details") {
     return Array.from(new Set(state.live.evidence.map((e) => e.scope).filter((s): s is string => !!s))).sort();
   }, [state.live]);
 
-  return { state, scopes, selectNode, traceField, analyzeImpact, explain, startLiveTrace, stopLiveTrace, runScenario, setMode, setTab, setScope, dismissError };
+  return { state, scopes, selectNode, traceField, analyzeImpact, explain, startLiveTrace, stopLiveTrace, runScenario, setLang, setMode, setTab, setScope, dismissError };
 }
 
 export type XRayController = ReturnType<typeof useXRay>;

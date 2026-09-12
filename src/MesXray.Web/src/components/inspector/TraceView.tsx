@@ -1,19 +1,21 @@
 import { ArrowRight } from "@phosphor-icons/react";
 import type { FieldTrace, TraceHop } from "../../api/types";
-import { formatValue, relationLabel, STATUS_LABELS, TYPE_LABELS } from "../../lib/presentation";
+import { useI18n } from "../../lib/I18nContext";
+import { formatValue } from "../../lib/presentation";
 
 function Hop({ hop, onSelect }: { hop: TraceHop; onSelect: (id: string) => void }) {
+  const { t, type, status, relation } = useI18n();
   return (
     <li className={`hop status-${hop.status}`}>
       <div className="hop-row">
-        {hop.viaRelation && <span className="hop-relation">{relationLabel(hop.viaRelation)}</span>}
+        {hop.viaRelation && <span className="hop-relation">{relation(hop.viaRelation)}</span>}
         {hop.condition && <span className="hop-condition">{hop.condition}</span>}
         <button type="button" className="link" onClick={() => onSelect(hop.nodeId)} title={hop.nodeId}>
-          <span className="hop-type">{TYPE_LABELS[hop.node.type] ?? hop.node.type}</span>
+          <span className="hop-type">{type(hop.node.type)}</span>
           {hop.node.name}
         </button>
-        {hop.status !== "known" && <span className={`status-chip ${hop.status}`}> {STATUS_LABELS[hop.status]}</span>}
-        {hop.isRepeat && <span className="muted"> (already expanded)</span>}
+        {hop.status !== "known" && <span className={`status-chip ${hop.status}`}> {status(hop.status)}</span>}
+        {hop.isRepeat && <span className="muted"> {t("trace.alreadyExpanded")}</span>}
       </div>
       {hop.expression && hop.node.type === "expression" && <pre className="hop-expression">{hop.expression}</pre>}
       {hop.runtimeValues.length > 0 && (
@@ -37,14 +39,15 @@ function Hop({ hop, onSelect }: { hop: TraceHop; onSelect: (id: string) => void 
 }
 
 export function TraceView({ trace, onSelect }: { trace: FieldTrace; onSelect: (id: string) => void }) {
+  const { t, type } = useI18n();
   return (
     <div className="trace-view">
       <div className="view-title">
-        <h3>Trace Source</h3>
+        <h3>{t("trace.title")}</h3>
         <code>{trace.field.id}</code>
         {trace.traceId && (
           <span className="status-chip known">
-            live {trace.traceId}
+            {t("trace.live", { traceId: trace.traceId })}
             {trace.scope ? ` @ ${trace.scope}` : ""}
           </span>
         )}
@@ -52,7 +55,7 @@ export function TraceView({ trace, onSelect }: { trace: FieldTrace; onSelect: (i
 
       {trace.executionPath.length > 0 && (
         <div className="execution-path">
-          <span className="section-label">Execution path</span>
+          <span className="section-label">{t("section.executionPath")}</span>
           <div className="path-chain">
             {trace.executionPath.map((n, i) => (
               <span key={n.id} style={{ display: "contents" }}>
@@ -70,29 +73,29 @@ export function TraceView({ trace, onSelect }: { trace: FieldTrace; onSelect: (i
         </div>
       )}
 
-      <span className="section-label">Upstream lineage</span>
+      <span className="section-label">{t("section.upstream")}</span>
       <ul className="hops">
         <Hop hop={trace.root} onSelect={onSelect} />
       </ul>
 
-      <span className="section-label">Unknowns</span>
+      <span className="section-label">{t("section.unknowns")}</span>
       {trace.unknowns.length === 0 ? (
-        <p className="ok">Every hop on this path is Known.</p>
+        <p className="ok">{t("trace.allKnown")}</p>
       ) : (
         <ul className="unknown-list">
           {trace.unknowns.map((u) => (
             <li key={`${u.nodeId}:${u.reason}`}>
               <button type="button" className="link" onClick={() => onSelect(u.nodeId)}>
-                <span className="hop-type">{TYPE_LABELS[u.type] ?? u.type}</span>
+                <span className="hop-type">{type(u.type)}</span>
                 {u.name}
               </button>{" "}
-              <span className="status-chip unknown">Need More Evidence</span>
+              <span className="status-chip unknown">{t("chip.needMoreEvidence")}</span>
               <div className="muted">{u.reason}</div>
             </li>
           ))}
         </ul>
       )}
-      <div className="muted evidence-count">{trace.evidenceIds.length} evidence ids</div>
+      <div className="muted evidence-count">{t("trace.evidenceIds", { n: trace.evidenceIds.length })}</div>
     </div>
   );
 }

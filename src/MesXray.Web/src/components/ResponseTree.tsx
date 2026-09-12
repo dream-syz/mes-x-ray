@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import type { GraphNode } from "../api/types";
 import type { XRayController } from "../state/useXRay";
+import { useI18n } from "../lib/I18nContext";
 import { formatValue } from "../lib/presentation";
 
 interface TreeLeaf {
@@ -69,6 +70,7 @@ function fromFields(fields: GraphNode[]): TreeLeaf[] {
 
 export function ResponseTree({ controller }: { controller: XRayController }) {
   const { state, traceField } = controller;
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const known = useMemo(() => new Set(state.responseFields.map((f) => f.id)), [state.responseFields]);
   const keyFields = useMemo(() => new Set(state.overview?.case.keyFields ?? []), [state.overview]);
@@ -102,7 +104,7 @@ export function ResponseTree({ controller }: { controller: XRayController }) {
       <li key={leaf.key}>
         <div className={`tree-row ${selected ? "selected" : ""} ${traceable ? "traceable" : ""}`} style={{ paddingLeft: "4px" }}>
           {leaf.children.length > 0 ? (
-            <button type="button" className="tree-toggle" onClick={() => setExpanded((e) => ({ ...e, [leaf.key]: !isOpen(leaf) }))} aria-label={isOpen(leaf) ? "collapse" : "expand"}>
+            <button type="button" className="tree-toggle" onClick={() => setExpanded((e) => ({ ...e, [leaf.key]: !isOpen(leaf) }))} aria-label={isOpen(leaf) ? t("tree.collapse") : t("tree.expand")}>
               {isOpen(leaf) ? <CaretDown size={11} weight="bold" /> : <CaretRight size={11} weight="bold" />}
             </button>
           ) : (
@@ -112,7 +114,7 @@ export function ResponseTree({ controller }: { controller: XRayController }) {
             type="button"
             className="tree-label"
             disabled={!traceable}
-            title={traceable ? `Trace Source for ${leaf.nodeId}` : leaf.nodeId ?? undefined}
+            title={traceable ? t("tree.traceFor", { id: leaf.nodeId }) : leaf.nodeId ?? undefined}
             onClick={() => leaf.nodeId && void traceField(leaf.nodeId, leaf.scope ?? (state.live ? null : undefined))}
           >
             <span className={`tree-name ${leaf.nodeId && keyFields.has(leaf.nodeId) ? "key-field" : ""}`}>{leaf.label}</span>
@@ -127,13 +129,13 @@ export function ResponseTree({ controller }: { controller: XRayController }) {
   return (
     <section className="pane pane-left">
       <div className="pane-header">
-        <h2>Response Tree</h2>
-        <span className="pane-sub">{state.live ? `${state.live.entityType} ${state.live.entityKey}` : "GET /cwp/v1/picking/pickOrder (static)"}</span>
+        <h2>{t("tree.title")}</h2>
+        <span className="pane-sub">{state.live ? `${state.live.entityType} ${state.live.entityKey}` : t("tree.static")}</span>
       </div>
       <div className="pane-body">
-        {tree.length === 0 ? <p className="muted">Loading response fields</p> : <ul className="tree">{tree.map(renderLeaf)}</ul>}
+        {tree.length === 0 ? <p className="muted">{t("tree.loading")}</p> : <ul className="tree">{tree.map(renderLeaf)}</ul>}
       </div>
-      <div className="pane-footer">Click a field to run Trace Source. Key demo fields are in accent.</div>
+      <div className="pane-footer">{t("tree.footer")}</div>
     </section>
   );
 }

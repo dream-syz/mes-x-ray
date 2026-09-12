@@ -16,6 +16,9 @@ public sealed record ExplainRequest
 
     /// <summary>Optional restriction: only these evidence ids may be cited.</summary>
     public IReadOnlyList<string>? AllowedEvidenceIds { get; init; }
+
+    /// <summary>Language of the generated text: <c>en</c> (default) or <c>zh</c>. Ids, expressions and values stay verbatim.</summary>
+    public string? Language { get; init; }
 }
 
 /// <summary>Request body of <c>POST /api/xray/ai/investigate</c>: a question about a trace, answered read-only.</summary>
@@ -31,6 +34,9 @@ public sealed record InvestigateRequest
     public string? Scope { get; init; }
 
     public IReadOnlyList<string>? AllowedEvidenceIds { get; init; }
+
+    /// <summary>Language of the generated text: <c>en</c> (default) or <c>zh</c>.</summary>
+    public string? Language { get; init; }
 }
 
 public enum HypothesisStatus

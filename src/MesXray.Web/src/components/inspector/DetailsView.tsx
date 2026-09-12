@@ -1,18 +1,20 @@
 import { ArrowLeft, ArrowRight } from "@phosphor-icons/react";
 import type { NodeDetailsResponse } from "../../api/types";
-import { formatValue, LAYERS, relationLabel, STATUS_LABELS, TYPE_LABELS } from "../../lib/presentation";
+import { useI18n } from "../../lib/I18nContext";
+import { formatValue } from "../../lib/presentation";
 
 export function DetailsView({ response, onSelect }: { response: NodeDetailsResponse; onSelect: (id: string) => void }) {
   const { details, runtimeValues } = response;
+  const { t, type, status, layer, relation } = useI18n();
   const node = details.node;
   const metadata = Object.entries(node.metadata ?? {}).filter(([key]) => key !== "reason");
 
   return (
     <div className="details-view">
       <div className="node-title">
-        <span>{LAYERS[node.layer]?.label ?? node.layer}</span>
-        <span>{TYPE_LABELS[node.type] ?? node.type}</span>
-        <span className={`status-chip ${node.status}`}>{STATUS_LABELS[node.status]}</span>
+        <span>{layer(node.layer)}</span>
+        <span>{type(node.type)}</span>
+        <span className={`status-chip ${node.status}`}>{status(node.status)}</span>
       </div>
       <h3 title={node.id}>{node.name}</h3>
       <code className="node-id">{node.id}</code>
@@ -21,7 +23,7 @@ export function DetailsView({ response, onSelect }: { response: NodeDetailsRespo
       {node.metadata?.reason && <p className="gap-reason">{node.metadata.reason}</p>}
       {node.source && (
         <div className="source">
-          <span className="section-label">Source</span>
+          <span className="section-label">{t("section.source")}</span>
           <code>
             {node.source.path}
             {node.source.startLine ? `:L${node.source.startLine}${node.source.endLine && node.source.endLine !== node.source.startLine ? `-L${node.source.endLine}` : ""}` : ""}
@@ -32,7 +34,7 @@ export function DetailsView({ response, onSelect }: { response: NodeDetailsRespo
 
       {runtimeValues.length > 0 && (
         <>
-          <span className="section-label">Live values</span>
+          <span className="section-label">{t("section.liveValues")}</span>
           <ul className="runtime-values">
             {runtimeValues.map((v) => (
               <li key={v.evidenceId}>
@@ -48,7 +50,7 @@ export function DetailsView({ response, onSelect }: { response: NodeDetailsRespo
 
       {metadata.length > 0 && (
         <>
-          <span className="section-label">Metadata</span>
+          <span className="section-label">{t("section.metadata")}</span>
           <dl className="metadata">
             {metadata.map(([key, value]) => (
               <div key={key}>
@@ -62,7 +64,7 @@ export function DetailsView({ response, onSelect }: { response: NodeDetailsRespo
 
       {details.lineageAsOutput.length > 0 && (
         <>
-          <span className="section-label">Lineage (as output)</span>
+          <span className="section-label">{t("section.lineageOut")}</span>
           <ul className="lineage">
             {details.lineageAsOutput.map((l) => (
               <li key={l.id}>
@@ -73,7 +75,7 @@ export function DetailsView({ response, onSelect }: { response: NodeDetailsRespo
                     {l.sourceFieldId}
                   </button>
                 ) : (
-                  <span className="muted">(no source: {l.transformType === "literal" ? "literal value" : "unresolved"})</span>
+                  <span className="muted">{l.transformType === "literal" ? t("details.noSourceLiteral") : t("details.noSourceUnresolved")}</span>
                 )}
                 {l.expression && <pre className="hop-expression">{l.expression}</pre>}
               </li>
@@ -84,21 +86,21 @@ export function DetailsView({ response, onSelect }: { response: NodeDetailsRespo
 
       {details.container && (
         <div className="container">
-          <span className="section-label">Contained in</span>
+          <span className="section-label">{t("section.containedIn")}</span>
           <button type="button" className="link" onClick={() => onSelect(details.container!.id)}>
             {details.container.name}
           </button>
         </div>
       )}
 
-      <span className="section-label">Edges ({details.incoming.length + details.outgoing.length})</span>
+      <span className="section-label">{t("section.edges", { n: details.incoming.length + details.outgoing.length })}</span>
       <ul className="edges">
         {details.outgoing.map((e) => (
           <li key={e.id}>
-            <span className="edge-dir" aria-label="outgoing">
+            <span className="edge-dir" aria-label={t("details.outgoing")}>
               <ArrowRight size={12} />
             </span>
-            <span className="hop-relation">{relationLabel(e.relationType)}</span>
+            <span className="hop-relation">{relation(e.relationType)}</span>
             <button type="button" className="link" onClick={() => onSelect(e.toNodeId)}>
               {e.toNodeId}
             </button>
@@ -108,10 +110,10 @@ export function DetailsView({ response, onSelect }: { response: NodeDetailsRespo
         ))}
         {details.incoming.map((e) => (
           <li key={e.id}>
-            <span className="edge-dir" aria-label="incoming">
+            <span className="edge-dir" aria-label={t("details.incoming")}>
               <ArrowLeft size={12} />
             </span>
-            <span className="hop-relation">{relationLabel(e.relationType)}</span>
+            <span className="hop-relation">{relation(e.relationType)}</span>
             <button type="button" className="link" onClick={() => onSelect(e.fromNodeId)}>
               {e.fromNodeId}
             </button>
