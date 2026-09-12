@@ -7,8 +7,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "preview": "vite preview"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.e2e.json",
+    "preview": "vite preview",
+    "e2e": "playwright test --project scenes",
+    "e2e:ui": "playwright test --project scenes --ui",
+    "demo:shots": "playwright test --project screenshots --workers 1"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.1.1",
@@ -20,6 +23,8 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.20.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",

@@ -25,10 +25,19 @@ export function ImpactView({ impact, onSelect }: { impact: ImpactResult; onSelec
     };
   }, [impact.origin.id, lang]);
 
-  const byDepth = impact.affected.reduce<Map<number, ImpactResult["affected"]>>((acc, item) => {
-    acc.set(item.depth, [...(acc.get(item.depth) ?? []), item]);
+  const byDistance = impact.affected.reduce<Map<number, ImpactResult["affected"]>>((acc, item) => {
+    acc.set(item.distance, [...(acc.get(item.distance) ?? []), item]);
     return acc;
   }, new Map());
+
+  // The relation through which the change reaches a node is the edge between the last two ids of its path; the
+  // impact subgraph carries exactly the edges the analysis walked.
+  const relationInto = (item: ImpactResult["affected"][number]): string | null => {
+    const from = item.path[item.path.length - 2];
+    if (!from) return null;
+    const edge = impact.graph.edges.find((e) => (e.fromNodeId === from && e.toNodeId === item.node.id) || (e.fromNodeId === item.node.id && e.toNodeId === from));
+    return edge?.relationType ?? null;
+  };
 
   return (
     <div className="impact-view">
@@ -74,21 +83,24 @@ export function ImpactView({ impact, onSelect }: { impact: ImpactResult; onSelec
       </ol>
 
       <span className="section-label">{t("section.byDistance")}</span>
-      {Array.from(byDepth.entries())
+      {Array.from(byDistance.entries())
         .sort((a, b) => a[0] - b[0])
-        .map(([depth, items]) => (
-          <div key={depth} className="depth-group">
-            <div className="depth">{t("impact.depth", { n: depth })}</div>
+        .map(([distance, items]) => (
+          <div key={distance} className="depth-group">
+            <div className="depth">{t("impact.depth", { n: distance })}</div>
             <ul>
-              {items.map((item) => (
-                <li key={item.node.id}>
-                  <button type="button" className="link" onClick={() => onSelect(item.node.id)} title={item.node.id}>
-                    <span className="hop-type">{type(item.node.type)}</span>
-                    {item.node.name}
-                  </button>
-                  {item.viaRelation && <span className="hop-relation"> {relation(item.viaRelation)}</span>}
-                </li>
-              ))}
+              {items.map((item) => {
+                const via = relationInto(item);
+                return (
+                  <li key={item.node.id}>
+                    <button type="button" className="link" onClick={() => onSelect(item.node.id)} title={`${item.node.id}\n${item.reason}`}>
+                      <span className="hop-type">{type(item.node.type)}</span>
+                      {item.node.name}
+                    </button>
+                    {via && <span className="hop-relation"> {relation(via)}</span>}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ))}

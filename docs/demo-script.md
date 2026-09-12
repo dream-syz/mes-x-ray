@@ -5,10 +5,13 @@ Design §14. Everything below runs offline from `fixtures/pick-order-details`; n
 ## Before the demo
 
 ```bash
+(cd src/MesXray.Web && npm run e2e)   # the day before: every scene below, in EN and ZH, through the real API and UI
 scripts/xray.sh demo              # builds, starts API :5080 + UI :5173, waits for health, prints every scene's
                                   # deep link on the port actually in use, opens Scene 1
 scripts/xray.sh status            # api/web "healthy" before you begin
 ```
+
+The e2e run starts its own API (:5090) and Vite (:5199) and drives the locally installed Chrome, so it neither needs nor disturbs the demo stack; it fails loudly if a verdict, a value or a path on any scene has changed.
 
 If :5173 is busy (another Vite project, for example) the script moves the UI to the next free port and says so; use the printed URLs rather than the ones below. `XRAY_LANG=zh scripts/xray.sh demo` prints the links with `&lang=zh` so the UI starts in Chinese; the header has an EN / 中文 switch as well, and the AI text follows the switch.
 

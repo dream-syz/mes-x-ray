@@ -32,6 +32,7 @@ scripts/xray.sh status         # pids, ports, API health
 scripts/xray.sh logs           # follow artifacts/run/logs/{api,web}.log
 scripts/xray.sh restart        # stop + rebuild + start   (--api-only / --web-only to limit)
 scripts/xray.sh stop           # --force also frees the ports from processes it did not start
+scripts/xray.sh rehearse       # Playwright: every demo scene in EN and ZH against a private API/Vite pair (see Tests and CI)
 ```
 
 If :5173 (or :5080) is already taken by another program, the script moves to the next free port and prints the URLs it actually uses (set `XRAY_API_PORT` / `XRAY_WEB_PORT` to insist on a port). Options: `--release` (Release build), `--no-build` (reuse last build), `XRAY_LANG=zh|en` (UI language of the printed deep links); a repo-root `.env` (copy of `.env.example`) is loaded automatically. Pid files, chosen ports and logs live in `artifacts/run/`.
@@ -71,7 +72,7 @@ mes-x-ray/
 ├─ Directory.Build.props              shared build settings; all output goes to /artifacts
 ├─ Directory.Packages.props           central package versions
 ├─ global.json · .editorconfig · .env.example · .gitignore
-├─ .github/workflows/ci.yml           CI: dotnet build/test, web typecheck/build, secret scan
+├─ .github/workflows/ci.yml           CI: dotnet build/test, web typecheck/build, Playwright demo scenes, secret scan
 ├─ scripts/xray.sh                    one-click start / stop / restart / status / logs
 ├─ src/
 │  ├─ MesXray.Domain/          graph model, node-id conventions, ports (IRuntimeAdapter, IGraphRepository…)
@@ -81,7 +82,7 @@ mes-x-ray/
 │  ├─ MesXray.Runtime/         fixture adapter, evidence binder, tool gateway, redactor
 │  ├─ MesXray.AI/              evidence bundle, investigators, validator, prompts (embedded)
 │  ├─ MesXray.Api/             ASP.NET Core host, endpoints, bootstrapper
-│  └─ MesXray.Web/             React + TypeScript + Vite UI
+│  └─ MesXray.Web/             React + TypeScript + Vite UI; e2e/ = Playwright demo scenes + screenshot mode
 ├─ tests/
 │  ├─ Directory.Build.props           test-project defaults (xunit, relaxed analyzers)
 │  ├─ MesXray.Scanner.DotNet.Tests/   scanner unit tests against the fixture source
@@ -211,11 +212,15 @@ Verdict rules (rule engine and validator alike): an Unknown/Pending definition o
 ## Tests and CI
 
 ```bash
-dotnet test MesXray.slnx          # 95 tests: scanners, graph, runtime gateway, AI, integration (AC-01 … AC-08)
-cd src/MesXray.Web && npm run build   # tsc --noEmit + vite build
+dotnet test MesXray.slnx              # 95 tests: scanners, graph, runtime gateway, AI, integration (AC-01 … AC-08)
+cd src/MesXray.Web && npm run build   # tsc --noEmit (app + e2e) + vite build
+cd src/MesXray.Web && npm run e2e     # 15 Playwright tests: the seven demo scenes in EN and ZH, plus the language switch
+cd src/MesXray.Web && npm run demo:shots   # re-shoot docs/demo/*.png from the same scene definitions
 ```
 
-`.github/workflows/ci.yml` runs both on every push/PR.
+The end-to-end suite (`src/MesXray.Web/e2e/`) drives the deep links of `docs/demo-script.md` through the real API and UI: it starts its own API (port 5090, fixtures only) and Vite (port 5199), so a running `scripts/xray.sh` stack is left alone. Numbers are compared with what the API returns for the same request; the facts the talk track quotes (`@WMS_Enabled` branches, the `ISNULL` hypothesis, `STRING_AGG`, the Pending `GetStorageBin`) are asserted literally. Locally it uses the Google Chrome that is already installed (nothing is downloaded; set `PW_CHANNEL` to use another channel); CI installs Playwright's Chromium.
+
+`.github/workflows/ci.yml` runs four jobs on every push/PR: .NET build and tests (warnings are errors), web type-check and build, the Playwright demo scenes, and a gitleaks secret scan that keeps fixtures and docs sanitized.
 
 ## Configuration
 

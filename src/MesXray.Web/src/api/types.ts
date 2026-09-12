@@ -129,9 +129,12 @@ export interface FieldTrace {
 
 export interface ImpactedNode {
   node: GraphNode;
-  depth: number;
-  viaEdgeId?: string | null;
-  viaRelation?: string | null;
+  /** Hops from the changed node. */
+  distance: number;
+  /** Node ids from the changed node to this one (inclusive); the connecting edges are in `ImpactResult.graph`. */
+  path: string[];
+  /** Why the change propagates (API wording, English). */
+  reason: string;
 }
 
 export interface ImpactResult {
