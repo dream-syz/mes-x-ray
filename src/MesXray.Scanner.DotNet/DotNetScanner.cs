@@ -67,7 +67,7 @@ public sealed class DotNetScanner : IScanner
             builder.Report(ScanDiagnosticSeverity.Error, diagnostic.GetMessage(), span.Path, span.StartLinePosition.Line + 1);
         }
 
-        var context = new ScanContext(compilation, TypeIndex.Build(compilation), builder, request.RootPath);
+        var context = new ScanContext(compilation, TypeIndex.Build(compilation), builder, request.RootPath, _options.SiteSettings);
 
         // Declarations first so that body rules can link to fully defined nodes.
         new ModelRule(context).Apply();

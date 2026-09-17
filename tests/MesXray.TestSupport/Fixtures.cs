@@ -13,6 +13,12 @@ public static class Fixtures
 
     public static string SqlSourcePath(string caseId = "pick-order-details") => Path.Combine(CasePath(caseId), "source", "sql");
 
+    /// <summary>Sanitised site configuration read by the .NET scanner (optional per case).</summary>
+    public static string SiteSettingsPath(string caseId = "pick-order-details") => Path.Combine(CasePath(caseId), "source", "config", "site-settings.json");
+
+    /// <summary>How the site settings file is cited in evidence references, matching the API bootstrapper.</summary>
+    public const string SiteSettingsSource = "config/site-settings.json";
+
     public static string GroundTruthPath(string caseId = "pick-order-details") => Path.Combine(CasePath(caseId), "expected-graph", "ground-truth.json");
 
     public static string ManualOverridesPath(string caseId = "pick-order-details") => Path.Combine(CasePath(caseId), "expected-graph", "manual-overrides.json");

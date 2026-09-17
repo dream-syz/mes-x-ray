@@ -13,24 +13,39 @@ public sealed class DotNetScannerTests : IClassFixture<DotNetScannerTests.ScanFi
     public DotNetScannerTests(ScanFixture fixture)
     {
         _result = fixture.Result;
+        _withoutSiteSettings = fixture.WithoutSiteSettings;
     }
 
     public sealed class ScanFixture
     {
         public ScanFixture()
         {
-            Result = new DotNetScanner().ScanDirectory(Fixtures.DotNetSourcePath());
+            Result = Scan(WithSiteSettings);
+            WithoutSiteSettings = Scan(DotNetScannerOptions.Default);
         }
 
+        /// <summary>The case as the API builds it: code plus the site's configuration values.</summary>
         public ScanResult Result { get; }
+
+        /// <summary>The same code scanned without configuration input, to check that nothing is guessed.</summary>
+        public ScanResult WithoutSiteSettings { get; }
+
+        public static DotNetScannerOptions WithSiteSettings { get; } = new()
+        {
+            SiteSettings = SiteSettings.ReadIfExists(Fixtures.SiteSettingsPath(), Fixtures.SiteSettingsSource),
+        };
+
+        public static ScanResult Scan(DotNetScannerOptions options) => new DotNetScanner(options).ScanDirectory(Fixtures.DotNetSourcePath());
     }
+
+    private readonly ScanResult _withoutSiteSettings;
 
     [Fact]
     public void Scan_has_no_errors_and_is_deterministic()
     {
         Assert.False(_result.HasErrors, string.Join("\n", _result.Diagnostics.Select(d => d.Message)));
 
-        var again = new DotNetScanner().ScanDirectory(Fixtures.DotNetSourcePath());
+        var again = ScanFixture.Scan(ScanFixture.WithSiteSettings);
         Assert.Equal(_result.Snapshot.Nodes.Select(n => n.Id), again.Snapshot.Nodes.Select(n => n.Id));
         Assert.Equal(_result.Snapshot.Edges.Select(e => e.Id), again.Snapshot.Edges.Select(e => e.Id));
     }
@@ -140,13 +155,39 @@ public sealed class DotNetScannerTests : IClassFixture<DotNetScannerTests.ScanFi
     }
 
     [Fact]
-    public void Computed_procedure_name_is_marked_unknown_not_guessed()
+    public void Computed_procedure_name_is_marked_unknown_not_guessed_without_site_settings()
     {
-        var edge = AssertEdge("method:PickOrderQuery.GetStorageBin", RelationType.ExecutesSp, "sp:dbo.<_options.StorageBinProcedure>");
+        var id = EdgeIds.Of("method:PickOrderQuery.GetStorageBin", RelationType.ExecutesSp, "sp:dbo.<_options.StorageBinProcedure>");
+        var edge = Assert.Single(_withoutSiteSettings.Snapshot.Edges, e => e.Id == id);
         Assert.True(edge.Confidence < 0.6);
-        var sp = Assert.Single(_result.Snapshot.Nodes, n => n.Id == "sp:dbo.<_options.StorageBinProcedure>");
+        Assert.Equal("_options.StorageBinProcedure", edge.GetMetadata("unresolvedExpression"));
+        var sp = Assert.Single(_withoutSiteSettings.Snapshot.Nodes, n => n.Id == "sp:dbo.<_options.StorageBinProcedure>");
         Assert.Equal(NodeStatus.Unknown, sp.Status);
-        Assert.Contains(_result.Diagnostics, d => d.Severity == ScanDiagnosticSeverity.Warning && d.Message.Contains("StorageBinProcedure", StringComparison.Ordinal));
+        Assert.Contains(_withoutSiteSettings.Diagnostics, d => d.Severity == ScanDiagnosticSeverity.Warning && d.Message.Contains("StorageBinProcedure", StringComparison.Ordinal));
+        Assert.DoesNotContain(_withoutSiteSettings.Snapshot.Nodes, n => n.Id == "sp:dbo.AP_Pick_GetPutStorageBin");
+    }
+
+    [Fact]
+    public void Configured_procedure_name_is_resolved_from_the_site_settings_with_configuration_evidence()
+    {
+        // PickingOptions.StorageBinProcedure = dbo.AP_Pick_GetPutStorageBin at the demo site (P1 input, 2026-09-17).
+        var edge = AssertEdge("method:PickOrderQuery.GetStorageBin", RelationType.ExecutesSp, "sp:dbo.AP_Pick_GetPutStorageBin");
+        Assert.Equal(EvidenceType.Configuration, edge.EvidenceType);
+        Assert.Equal(0.9, edge.Confidence);
+        Assert.Equal("config/site-settings.json#PickingOptions.StorageBinProcedure", edge.EvidenceRef);
+        Assert.Equal("PickingOptions.StorageBinProcedure", edge.GetMetadata("resolvedFrom"));
+        Assert.Equal("dbo.AP_Pick_GetPutStorageBin", edge.GetMetadata("configuredValue"));
+        Assert.StartsWith("Queries/PickOrderQuery.cs:", edge.GetMetadata("codeRef"), StringComparison.Ordinal);
+        Assert.Contains(edge.EvidenceRef!, edge.GetMetadata("evidenceRefs")!, StringComparison.Ordinal);
+
+        // The procedure itself is still only referenced: its definition has to come from the SQL scanner (or curation).
+        var sp = Assert.Single(_result.Snapshot.Nodes, n => n.Id == "sp:dbo.AP_Pick_GetPutStorageBin");
+        Assert.Equal(NodeStatus.Unknown, sp.Status);
+        Assert.Equal("dbo.AP_Pick_GetPutStorageBin", sp.QualifiedName);
+        AssertEdge("sp:dbo.AP_Pick_GetPutStorageBin", RelationType.MapsTo, "model:CWPStorageBin");
+
+        Assert.DoesNotContain(_result.Snapshot.Nodes, n => n.Id.StartsWith("sp:dbo.<", StringComparison.Ordinal));
+        Assert.DoesNotContain(_result.Diagnostics, d => d.Severity == ScanDiagnosticSeverity.Warning && d.Message.Contains("StorageBinProcedure", StringComparison.Ordinal));
     }
 
     [Fact]

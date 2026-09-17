@@ -117,17 +117,30 @@ public sealed class FieldTraceTests : IClassFixture<AssembledGraphFixture>
     }
 
     [Fact]
-    public void AC06_destination_wagon_storage_bin_ends_in_a_pending_method()
+    public void AC06_destination_wagon_storage_bin_ends_in_the_pending_configured_procedure()
     {
         // CWPStorageBin.Location has no lineage of its own: the trace must follow the model's producers and end
-        // explicitly at the Pending enrichment method and the runtime-computed SP, never silently at a Known field.
+        // explicitly at the procedure the site configuration names (Pending: definition outstanding), never silently
+        // at a Known field. The enrichment method itself is Known since the procedure name was confirmed.
         var trace = _fx.Tracer.Trace("json:pickOrderRows.destinationWagon.storageBin.location");
-        var pending = Assert.Single(trace.Unknowns, u => u.NodeId == "method:PickOrderService.GetStorageBin");
-        Assert.Contains("not been scanned", pending.Reason, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(trace.Unknowns, u => u.NodeId.StartsWith("sp:dbo.<", StringComparison.Ordinal) && u.Type == NodeType.StoredProcedure);
-        Assert.Contains(AssembledGraphFixture.Flatten(trace.Root), h => h.NodeId == "method:PickOrderService.GetStorageBin" && h.Status == NodeStatus.Pending && h.ViaRelation == RelationType.EnrichedBy && h.Sources.Count == 0);
-        Assert.Contains(trace.ExecutionPath, n => n.Id == "method:PickOrderService.GetStorageBin");
+        var pending = Assert.Single(trace.Unknowns);
+        Assert.Equal("sp:dbo.AP_Pick_GetPutStorageBin", pending.NodeId);
+        Assert.Equal(NodeType.StoredProcedure, pending.Type);
+        Assert.Contains("not been provided", pending.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(trace.Unknowns, u => u.NodeId.StartsWith("sp:dbo.<", StringComparison.Ordinal));
+
+        var hops = AssembledGraphFixture.Flatten(trace.Root).ToList();
+        Assert.Contains(hops, h => h.NodeId == "sp:dbo.AP_Pick_GetPutStorageBin" && h.Status == NodeStatus.Pending && h.ViaRelation == RelationType.MapsTo && h.Sources.Count == 0);
+        Assert.Contains(hops, h => h.NodeId == "method:PickOrderService.GetStorageBin" && h.Status == NodeStatus.Known && h.ViaRelation == RelationType.EnrichedBy);
+
+        // The execution path now reaches the procedure through the configured Dapper call.
         Assert.Equal("page:WebVP.PickOrderDetails", trace.ExecutionPath[0].Id);
+        Assert.Contains(trace.ExecutionPath, n => n.Id == "method:PickOrderService.GetStorageBin");
+        Assert.Contains(trace.ExecutionPath, n => n.Id == "method:PickOrderQuery.GetStorageBin");
+        Assert.Equal("sp:dbo.AP_Pick_GetPutStorageBin", trace.ExecutionPath[^1].Id);
+        var configured = trace.Graph.Edges.Single(e => e.RelationType == RelationType.ExecutesSp && e.ToNodeId == "sp:dbo.AP_Pick_GetPutStorageBin");
+        Assert.Equal(EvidenceType.Configuration, configured.EvidenceType);
+        Assert.Equal("config/site-settings.json#PickingOptions.StorageBinProcedure", configured.EvidenceRef);
     }
 
     [Fact]

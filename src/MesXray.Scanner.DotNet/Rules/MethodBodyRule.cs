@@ -149,6 +149,8 @@ public sealed partial class MethodBodyRule
 
         string spId;
         double confidence;
+        var evidenceType = EvidenceType.Roslyn;
+        var edgeEvidence = evidence;
         var metadata = new Dictionary<string, string>
         {
             ["dapperMethod"] = methodName,
@@ -175,9 +177,32 @@ public sealed partial class MethodBodyRule
             _ctx.Builder.Reference(spId, NodeType.StoredProcedure, parsed.Value.Name, Layer.Data,
                 "Stored procedure referenced from .NET; definition comes from the SQL scanner.", $"{parsed.Value.Schema}.{parsed.Value.Name}");
         }
+        else if (ConfiguredProcedure(commandArgument.Expression, invocation) is { } configured)
+        {
+            // e.g. _options.StorageBinProcedure with PickingOptions.StorageBinProcedure in the site settings: the name is
+            // not in the code, so the evidence is the configuration entry, cited next to the call site.
+            spId = NodeIds.StoredProcedure(configured.Name, configured.Schema);
+            confidence = 0.9;
+            evidenceType = EvidenceType.Configuration;
+            edgeEvidence = _ctx.SiteSettings.EvidenceRef(configured.SettingKey);
+            metadata["resolvedFrom"] = configured.SettingKey;
+            metadata["configuredValue"] = configured.Setting.Value;
+            metadata["codeRef"] = evidence;
+            metadata["evidenceRefs"] = $"{evidence};{edgeEvidence}";
+            if (configured.Setting.Provided is not null)
+            {
+                metadata["provided"] = configured.Setting.Provided;
+            }
+
+            _ctx.Builder.Reference(spId, NodeType.StoredProcedure, configured.Name, Layer.Data,
+                $"Stored procedure named by site configuration ({configured.SettingKey}); definition comes from the SQL scanner.", $"{configured.Schema}.{configured.Name}");
+            _ctx.Builder.Report(ScanDiagnosticSeverity.Info,
+                $"{callerId} executes the procedure configured in {configured.SettingKey}: {configured.Setting.Value}.",
+                _ctx.RelativePath(invocation), _ctx.LineOf(invocation));
+        }
         else
         {
-            // e.g. _options.StorageBinProcedure: the name is not a compile-time constant.
+            // e.g. _options.StorageBinProcedure without a site setting: the name is not a compile-time constant.
             var expressionText = commandArgument.Expression.ToString();
             var placeholderName = $"<{expressionText}>";
             spId = NodeIds.StoredProcedure(placeholderName);
@@ -191,7 +216,7 @@ public sealed partial class MethodBodyRule
         }
 
         var guard = GuardOf(invocation);
-        _ctx.Builder.Link(callerId, RelationType.ExecutesSp, spId, EvidenceType.Roslyn, evidence, confidence, WithGuard(guard, metadata.Select(kv => (kv.Key, kv.Value)).ToArray()));
+        _ctx.Builder.Link(callerId, RelationType.ExecutesSp, spId, evidenceType, edgeEvidence, confidence, WithGuard(guard, metadata.Select(kv => (kv.Key, kv.Value)).ToArray()));
 
         // Generic result type: QueryAsync<CWPPickOrderRow>(...) -> Dapper maps result columns onto the model by name.
         if (member.Name is GenericNameSyntax generic && generic.TypeArgumentList.Arguments.Count == 1)
@@ -206,6 +231,37 @@ public sealed partial class MethodBodyRule
         }
 
         return true;
+    }
+
+    private sealed record ConfiguredProcedureName(string SettingKey, SiteSetting Setting, string Schema, string Name);
+
+    /// <summary>
+    /// A command argument that reads an options property (<c>_options.StorageBinProcedure</c>) resolves to the value the
+    /// site binds to that property, when the site settings carry one. Anything else stays unresolved.
+    /// </summary>
+    private ConfiguredProcedureName? ConfiguredProcedure(ExpressionSyntax commandExpression, InvocationExpressionSyntax invocation)
+    {
+        if (_ctx.SiteSettings.Count == 0 || _ctx.ResolveProperty(commandExpression) is not { } property)
+        {
+            return null;
+        }
+
+        if (!_ctx.SiteSettings.TryGet(property.ContainingType.Name, property.Name, out var setting))
+        {
+            return null;
+        }
+
+        var key = SiteSettings.Key(property.ContainingType.Name, property.Name);
+        var parsed = ParseSqlObjectName(setting.Value);
+        if (parsed is null)
+        {
+            _ctx.Builder.Report(ScanDiagnosticSeverity.Warning,
+                $"Site setting {key} = '{setting.Value}' is not a SQL object name; the procedure stays Unknown.",
+                _ctx.RelativePath(invocation), _ctx.LineOf(invocation));
+            return null;
+        }
+
+        return new ConfiguredProcedureName(key, setting, parsed.Value.Schema, parsed.Value.Name);
     }
 
     // ----- Property assignments -----

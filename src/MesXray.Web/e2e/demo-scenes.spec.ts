@@ -213,20 +213,33 @@ for (const lang of LANGS) {
       await expect(page.locator(".trace-view .ok")).toHaveText(t("trace.allKnown"));
     });
 
-    test("6b destination wagon: stops at the Pending GetStorageBin, Need More Evidence, no guess", async ({ page }) => {
+    test("6b destination wagon: stops at the Pending AP_Pick_GetPutStorageBin named by site configuration, no guess", async ({ page }) => {
       await openScene(page, SCENES.destinationWagon, lang);
       const view = page.locator(".explain-view");
 
+      // The site configuration names the procedure (P1 input, 2026-09-17); its definition is the remaining gap.
       await expect(view.locator(".verdict-label")).toHaveText(t("verdict.needMoreEvidence"));
-      await expect(view.locator(".unknown-list li").filter({ hasText: "GetStorageBin" }).first()).toBeVisible();
+      await expect(view.locator(".unknown-list li").filter({ hasText: "AP_Pick_GetPutStorageBin" }).first()).toBeVisible();
+      await expect(view.locator(".unknown-list li").filter({ hasText: "PickOrderService.GetStorageBin" })).toHaveCount(0);
       await expect(view.locator(".unknown-list li .status-chip").first()).toHaveText(t("chip.needMoreEvidence"));
-      await expect(view.locator(".facts li").filter({ hasText: "GetStorageBin returns" })).toHaveCount(0);
-      await expect(view.locator(".next-steps li").filter({ hasText: "GetStorageBin" }).first()).toBeVisible();
+      await expect(view.locator(".facts li").filter({ hasText: /StorageBin returns/ })).toHaveCount(0);
+      await expect(view.locator(".next-steps li").filter({ hasText: "AP_Pick_GetPutStorageBin" }).first()).toBeVisible();
 
-      // The trace tab counts the unknown hops and the graph marks the pending method as a gap.
+      // The trace tab counts the unknown hop and the graph marks the pending procedure as the gap; the method that
+      // calls it is Known and the execution path runs through the configured Dapper call down to the procedure.
       await expect(page.locator(".tabs .count.warn")).toBeVisible();
-      await expect(page.locator(".xray-node.status-pending").filter({ hasText: "GetStorageBin" }).first()).toBeVisible();
+      await expect(page.locator(".xray-node.status-pending").filter({ hasText: "AP_Pick_GetPutStorageBin" }).first()).toBeVisible();
       await expect(page.locator(".xray-node.status-pending .xray-node-gap").first()).toBeVisible();
+      await expect(page.locator(".xray-node.status-pending").filter({ hasText: /^GetStorageBin/ })).toHaveCount(0);
+      await page.locator(".tabs button", { hasText: t("tab.trace") }).click();
+      await expect(page.locator(".execution-path .path-node").last()).toHaveText("AP_Pick_GetPutStorageBin");
+      await expect(hop(page, "sp:dbo.AP_Pick_GetPutStorageBin").first()).toBeVisible();
+
+      // The procedure's incoming edge cites the configuration entry as its evidence.
+      await hop(page, "sp:dbo.AP_Pick_GetPutStorageBin").first().click();
+      await page.locator(".tabs button", { hasText: t("tab.details") }).click();
+      const executes = page.locator(".details-view .edges li").filter({ hasText: "method:PickOrderQuery.GetStorageBin" });
+      await expect(executes).toContainText("(configuration)");
     });
   });
 }

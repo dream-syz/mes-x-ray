@@ -65,7 +65,11 @@ public sealed class GraphBootstrapper
             var dotnetRoot = Path.Combine(FixtureRoot, "source", "dotnet");
             if (Directory.Exists(dotnetRoot))
             {
-                steps.Add(Time("dotnet-scanner", () => Merge(new DotNetScanner().ScanDirectory(dotnetRoot))));
+                // Site configuration (values bound to options properties) lets the scanner resolve procedure names the
+                // code only knows at runtime; the file is optional.
+                var siteSettings = SiteSettings.ReadIfExists(Path.Combine(FixtureRoot, "source", "config", "site-settings.json"), "config/site-settings.json");
+                var scanner = new DotNetScanner(new DotNetScannerOptions { SiteSettings = siteSettings });
+                steps.Add(Time("dotnet-scanner", () => Merge(scanner.ScanDirectory(dotnetRoot))));
             }
 
             var sqlRoot = Path.Combine(FixtureRoot, "source", "sql");

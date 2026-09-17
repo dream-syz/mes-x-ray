@@ -132,6 +132,6 @@
   },
   "unknowns": [
     "AF_Pick_GetAvailableQuantity was evaluated inside SQL Server; its return value per material and the INVENTORY2 / InventoryData rows behind it were not captured.",
-    "GetStorageBin() result per wagon was not captured (procedure pending)."
+    "AP_Pick_GetPutStorageBin result per wagon (GetStorageBin) was not captured; the procedure definition is pending."
   ]
 }

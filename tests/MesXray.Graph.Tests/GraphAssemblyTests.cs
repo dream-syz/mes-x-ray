@@ -61,8 +61,18 @@ public sealed class GraphAssemblyTests : IClassFixture<AssembledGraphFixture>
         Assert.Equal(NodeStatus.Pending, reader.Status);
         Assert.Contains("not needed", reader.Description, StringComparison.Ordinal);
 
-        var pending = _fx.Store.FindNode("method:PickOrderService.GetStorageBin")!;
-        Assert.Equal(NodeStatus.Pending, pending.Status);
+        // P1 (2026-09-17): the site configuration names the storage-bin procedure, so the method is Known and the
+        // Pending boundary moved to the procedure whose definition is still outstanding.
+        var storageBin = _fx.Store.FindNode("method:PickOrderService.GetStorageBin")!;
+        Assert.Equal(NodeStatus.Known, storageBin.Status);
+        Assert.Contains("AP_Pick_GetPutStorageBin", storageBin.Description, StringComparison.Ordinal);
+        var putStorageBin = _fx.Store.FindNode("sp:dbo.AP_Pick_GetPutStorageBin")!;
+        Assert.Equal(NodeStatus.Pending, putStorageBin.Status);
+        Assert.Contains("not been provided", putStorageBin.GetMetadata("reason"), StringComparison.Ordinal);
+        var configured = _fx.Store.OutEdges("method:PickOrderQuery.GetStorageBin").Single(e => e.RelationType == RelationType.ExecutesSp);
+        Assert.Equal("sp:dbo.AP_Pick_GetPutStorageBin", configured.ToNodeId);
+        Assert.Equal(EvidenceType.Configuration, configured.EvidenceType);
+        Assert.Null(_fx.Store.FindNode("sp:dbo.<_options.StorageBinProcedure>"));
 
         var parentLocation = _fx.Store.FindNode("param:Pick_UseParentLocation")!;
         Assert.Equal(NodeStatus.Known, parentLocation.Status);

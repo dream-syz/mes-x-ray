@@ -39,7 +39,9 @@ public sealed class AcceptanceCriteriaTests : IClassFixture<XRayApiFactory>
         // The P0 gap (AF_Pick_GetAvailableQuantity definition) was delivered and scanned: it is no longer a known gap.
         Assert.DoesNotContain(overview["knownGaps"]!.AsArray(), g => g!["nodeId"]!.GetValue<string>() == "udf:dbo.AF_Pick_GetAvailableQuantity");
         Assert.Equal(2, overview["knownGaps"]!.AsArray().Count);
-        Assert.Contains(overview["knownGaps"]!.AsArray(), g => g!["nodeId"]!.GetValue<string>() == "method:PickOrderService.GetStorageBin" && g["status"]!.GetValue<string>() == "pending");
+        // P1: the site configuration named the procedure (2026-09-17), so the gap is now its definition, not the method.
+        Assert.Contains(overview["knownGaps"]!.AsArray(), g => g!["nodeId"]!.GetValue<string>() == "sp:dbo.AP_Pick_GetPutStorageBin" && g["status"]!.GetValue<string>() == "pending");
+        Assert.DoesNotContain(overview["knownGaps"]!.AsArray(), g => g!["nodeId"]!.GetValue<string>() == "method:PickOrderService.GetStorageBin");
         Assert.Contains(overview["systemParameters"]!.AsArray(), p => p!["id"]!.GetValue<string>() == "param:Pick_UseParentLocation");
         Assert.Contains("trace_pick_order", overview["allowedTools"]!.AsArray().Select(t => t!.GetValue<string>()));
         Assert.Contains("execute_arbitrary_sql", overview["forbiddenTools"]!.AsArray().Select(t => t!.GetValue<string>()));
@@ -202,9 +204,9 @@ public sealed class AcceptanceCriteriaTests : IClassFixture<XRayApiFactory>
         var explanation = (await XRayApiFactory.ReadJsonAsync(response))["explanation"]!;
 
         Assert.Equal("needMoreEvidence", explanation["verdict"]!.GetValue<string>());
-        Assert.Contains(explanation["unknowns"]!.AsArray(), u => u!.GetValue<string>().Contains("GetStorageBin", StringComparison.Ordinal));
-        Assert.Contains(explanation["nextSteps"]!.AsArray(), s => s!.GetValue<string>().Contains("GetStorageBin", StringComparison.Ordinal));
-        Assert.DoesNotContain(explanation["knownFacts"]!.AsArray(), f => f!["text"]!.GetValue<string>().Contains("GetStorageBin returns", StringComparison.Ordinal));
+        Assert.Contains(explanation["unknowns"]!.AsArray(), u => u!.GetValue<string>().Contains("AP_Pick_GetPutStorageBin", StringComparison.Ordinal));
+        Assert.Contains(explanation["nextSteps"]!.AsArray(), s => s!.GetValue<string>().Contains("AP_Pick_GetPutStorageBin", StringComparison.Ordinal));
+        Assert.DoesNotContain(explanation["knownFacts"]!.AsArray(), f => f!["text"]!.GetValue<string>().Contains("StorageBin returns", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -17,4 +17,10 @@ public enum EvidenceType
 
     /// <summary>Derived deterministically by linking outputs of two scanners (e.g. Dapper column -> property).</summary>
     Linker,
+
+    /// <summary>
+    /// Read from the site's configuration: the value an options property is bound to at the site under study
+    /// (e.g. the stored procedure name a Dapper call takes from <c>PickingOptions.StorageBinProcedure</c>).
+    /// </summary>
+    Configuration,
 }

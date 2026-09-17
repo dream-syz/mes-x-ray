@@ -1,0 +1,10 @@
+{
+  "$comment": "Sanitised site configuration: the values the options classes are bound to at the demo site. Keyed by OptionsType.Property. Only values the code turns into SQL object names belong here; the scanner cites each entry as Configuration evidence (config/site-settings.json#Key).",
+  "values": {
+    "PickingOptions.StorageBinProcedure": {
+      "value": "dbo.AP_Pick_GetPutStorageBin",
+      "provided": "2026-09-17",
+      "note": "P1 input: the storage-bin procedure PickOrderQuery.GetStorageBin executes for a destination wagon. The definition of the procedure itself has not been provided yet."
+    }
+  }
+}

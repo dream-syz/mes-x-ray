@@ -18,5 +18,12 @@ public sealed class DotNetScannerOptions
         "System.Threading.Tasks",
     ];
 
+    /// <summary>
+    /// Configuration values of the site under study. A Dapper call whose procedure name is an options property
+    /// (<c>_options.StorageBinProcedure</c>) resolves to the configured procedure with Configuration evidence;
+    /// without a setting the procedure stays an Unknown placeholder.
+    /// </summary>
+    public SiteSettings SiteSettings { get; init; } = SiteSettings.Empty;
+
     public static DotNetScannerOptions Default { get; } = new();
 }

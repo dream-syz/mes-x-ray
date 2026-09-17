@@ -8,12 +8,13 @@ namespace MesXray.Scanner.DotNet.Analysis;
 /// <summary>Shared state and id/evidence helpers for all .NET scanner rules.</summary>
 public sealed class ScanContext
 {
-    public ScanContext(Compilation compilation, TypeIndex types, SnapshotBuilder builder, string rootPath)
+    public ScanContext(Compilation compilation, TypeIndex types, SnapshotBuilder builder, string rootPath, SiteSettings? siteSettings = null)
     {
         Compilation = compilation;
         Types = types;
         Builder = builder;
         RootPath = Path.GetFullPath(rootPath);
+        SiteSettings = siteSettings ?? SiteSettings.Empty;
     }
 
     public Compilation Compilation { get; }
@@ -23,6 +24,9 @@ public sealed class ScanContext
     public SnapshotBuilder Builder { get; }
 
     public string RootPath { get; }
+
+    /// <summary>Configured values of the site, for names the code only knows at runtime.</summary>
+    public SiteSettings SiteSettings { get; }
 
     // ----- ids -----
 

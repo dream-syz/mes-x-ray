@@ -111,6 +111,9 @@ fixtures/pick-order-details/
 │                                default fixture/trace/scope, known gaps with priorities
 ├─ source/dotnet/**/*.cs         sanitized C# (controllers, services, Dapper queries, models)
 ├─ source/sql/**/*.sql           sanitized T-SQL (CREATE PROCEDURE / FUNCTION)
+├─ source/config/site-settings.json  optional: site configuration values keyed by options property
+│                                (PickingOptions.StorageBinProcedure = dbo.AP_Pick_GetPutStorageBin); the .NET
+│                                scanner resolves runtime-configured procedure names from it, cited as `configuration` evidence
 ├─ expected-graph/
 │  ├─ ground-truth.json          curated nodes/edges/lineage the scanners must reproduce (design §2, appendix A)
 │  └─ manual-overrides.json      human knowledge: Pending/Unknown statuses, descriptions, web→API edge
@@ -143,8 +146,8 @@ The API builds the graph at startup (`GraphBootstrapper`), in this order:
 | Gap | Priority | Status |
 |---|---|---|
 | `dbo.AF_Pick_GetAvailableQuantity` definition (design §16, P0) | delivered 2026-09-12 | **Closed**: the sanitized definition is in `source/sql`; `availableQuantity` traces through the function's `RETURN` expression, the `InventoryData` CTE and the `DET2_ILG_ProductDeliveryMethod` / `PRODUCT_GROUP` / `INVENTORY2` columns. Explain is *Known*; Investigate of the observed `0` yields a hypothesis (ISNULL fallback of `SUM(QuantityOnHand)`) and *Need More Evidence*. |
-| `PickOrderService.GetStorageBin` / site-configured storage-bin procedure | P1 | Pending: `destinationWagon.storageBin.location` stops there explicitly |
-| `dbo.AP_Pick_GetMultiPickOrderRows` (multi pick order flow) | P2 | Unknown: out of scope for the first iteration |
+| `dbo.AP_Pick_GetPutStorageBin` definition (storage bins of a destination wagon) | P1 | **Half closed** 2026-09-17: the site configuration names the procedure (`source/config/site-settings.json`, `PickingOptions.StorageBinProcedure`), so `GetStorageBin` is Known and the Dapper call resolves with `configuration` evidence (0.9). The procedure body is still outstanding: `destinationWagon.storageBin.location` stops explicitly at the Pending procedure |
+| `dbo.AP_Pick_GetMultiPickOrderRows` (multi pick order flow) | P2 | Unknown: not part of the demo, left as a documented gap |
 
 The typed parameter readers `AF_GetSystemParameterValueint` / `AF_GetSystemParameterValueListString` are curated as Pending: every call is resolved by parameter name, so their bodies are not needed for lineage.
 

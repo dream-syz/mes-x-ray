@@ -29,10 +29,23 @@
       "type": "method",
       "name": "GetStorageBin",
       "layer": "service",
-      "status": "pending",
-      "description": "Resolves storage bins for a destination wagon. The stored procedure is configured per site and is not scanned yet.",
+      "status": "known",
+      "description": "Resolves storage bins for a destination wagon (by facility and pick group) through the site-configured procedure: PickingOptions.StorageBinProcedure, dbo.AP_Pick_GetPutStorageBin at this site.",
       "metadata": {
-        "reason": "Pending: storage bin procedure is configured per site (PickingOptions.StorageBinProcedure) and has not been scanned."
+        "resolved": "2026-09-17 (P1 input: procedure name confirmed, see source/config/site-settings.json)"
+      }
+    },
+    {
+      "id": "sp:dbo.AP_Pick_GetPutStorageBin",
+      "type": "storedProcedure",
+      "name": "AP_Pick_GetPutStorageBin",
+      "qualifiedName": "dbo.AP_Pick_GetPutStorageBin",
+      "layer": "data",
+      "status": "pending",
+      "description": "Storage bins for a destination wagon (Facility, PickGroupId), mapped onto CWPStorageBin. Named by the site configuration PickingOptions.StorageBinProcedure; its definition has not been provided yet, so where Location comes from inside the procedure is not known.",
+      "metadata": {
+        "reason": "Pending: named by site configuration (PickingOptions.StorageBinProcedure, provided 2026-09-17); the procedure definition has not been provided yet.",
+        "provided": "2026-09-17 (name only; P1 definition outstanding)"
       }
     },
     {

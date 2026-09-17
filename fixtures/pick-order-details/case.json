@@ -28,13 +28,13 @@
   "defaultScope": "T12288",
   "knownGaps": [
     {
-      "nodeId": "method:PickOrderService.GetStorageBin",
-      "reason": "Storage bin procedure for destination wagons is configured per site and has not been scanned.",
+      "nodeId": "sp:dbo.AP_Pick_GetPutStorageBin",
+      "reason": "Storage bin procedure for destination wagons: the site configuration names it (PickingOptions.StorageBinProcedure, provided 2026-09-17) but its definition has not been provided yet.",
       "priority": "P1"
     },
     {
       "nodeId": "sp:dbo.AP_Pick_GetMultiPickOrderRows",
-      "reason": "Multi pick order flow is out of scope for the first iteration.",
+      "reason": "Multi pick order flow is out of scope: not part of the demo, left as a documented gap.",
       "priority": "P2"
     }
   ]

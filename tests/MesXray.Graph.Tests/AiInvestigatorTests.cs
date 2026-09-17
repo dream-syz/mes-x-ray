@@ -190,9 +190,11 @@ public sealed class AiInvestigatorTests : IClassFixture<AssembledGraphFixture>
     {
         var explanation = await new RuleBasedInvestigator(_options).InvestigateAsync(Bundle("json:pickOrderRows.destinationWagon.storageBin.location", "Where does the wagon storage bin come from?"));
         Assert.Equal(ExplainVerdict.NeedMoreEvidence, explanation.Verdict);
-        Assert.Contains(explanation.Unknowns, u => u.Contains("GetStorageBin", StringComparison.Ordinal));
-        Assert.Contains(explanation.NextSteps, s => s.Contains("GetStorageBin", StringComparison.Ordinal));
-        Assert.DoesNotContain(explanation.KnownFacts, f => f.Text.Contains("GetStorageBin", StringComparison.Ordinal) && f.Text.Contains("returns", StringComparison.Ordinal));
+        // The gap is the configured procedure whose definition is outstanding; the method that calls it is no longer one.
+        Assert.Contains(explanation.Unknowns, u => u.Contains("AP_Pick_GetPutStorageBin", StringComparison.Ordinal));
+        Assert.DoesNotContain(explanation.Unknowns, u => u.Contains("PickOrderService.GetStorageBin", StringComparison.Ordinal));
+        Assert.Contains(explanation.NextSteps, s => s.Contains("AP_Pick_GetPutStorageBin", StringComparison.Ordinal));
+        Assert.DoesNotContain(explanation.KnownFacts, f => f.Text.Contains("StorageBin", StringComparison.Ordinal) && f.Text.Contains("returns", StringComparison.Ordinal));
     }
 
     [Fact]

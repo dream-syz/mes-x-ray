@@ -21,7 +21,8 @@ public sealed class AssembledGraphFixture
     public AssembledGraphFixture()
     {
         ScannedOnly = new InMemoryGraphStore();
-        ScannedOnly.Merge(new DotNetScanner().ScanDirectory(Fixtures.DotNetSourcePath()).Snapshot);
+        var siteSettings = SiteSettings.ReadIfExists(Fixtures.SiteSettingsPath(), Fixtures.SiteSettingsSource);
+        ScannedOnly.Merge(new DotNetScanner(new DotNetScannerOptions { SiteSettings = siteSettings }).ScanDirectory(Fixtures.DotNetSourcePath()).Snapshot);
         ScannedOnly.Merge(new SqlScanner().ScanDirectory(Fixtures.SqlSourcePath()).Snapshot);
         LinkReport = new GraphLinker(ScannedOnly).LinkDapperMappings();
 

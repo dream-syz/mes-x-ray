@@ -87,7 +87,7 @@ Deep link: `/?impact=param:WMS_Enabled`
 
 Response Tree → `pickStorageBin.storageBin`. Lineage: `STRING_AGG(...)` over `#LocationList.StorageBin` ← CASE on `WL_Description_Replacement` (`ELSE` → `WAREHOUSE_LOCATION.Location`) with the FIFO ordering; live value `"A-01-02,A-01-05"`.
 
-Optional contrast: `destinationWagon.storageBin.location` ends explicitly at the **Pending** `GetStorageBin` method and the runtime-computed SP — Unknown by design, not a dead end. (This is what `availableQuantity` looked like before the `AF_Pick_GetAvailableQuantity` definition was delivered.)
+Optional contrast: `destinationWagon.storageBin.location` ends explicitly at the **Pending** procedure `AP_Pick_GetPutStorageBin`. The procedure name is not in the code (`_options.StorageBinProcedure`); the site configuration (`source/config/site-settings.json`) names it, so the Dapper call resolves with `configuration` evidence at 0.9 and `GetStorageBin` itself is Known. The procedure body has not been provided, so the trace stops there — Unknown by design, not a dead end. (This is what `availableQuantity` looked like before the `AF_Pick_GetAvailableQuantity` definition was delivered.)
 
 Deep links: `/?order=PICK0843858&field=json:pickOrderRows.pickStorageBin.storageBin&scope=T12288`; contrast `/?field=json:pickOrderRows.destinationWagon.storageBin.location&explain=1`
 
