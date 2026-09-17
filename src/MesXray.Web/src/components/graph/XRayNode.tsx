@@ -1,12 +1,12 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Warning } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, Warning } from "@phosphor-icons/react";
 import type { CSSProperties } from "react";
 import { useI18n } from "../../lib/I18nContext";
 import { formatValue, shortName } from "../../lib/presentation";
 import type { XRayFlowNode } from "./layout";
 
 export function XRayNode({ data, selected }: NodeProps<XRayFlowNode>) {
-  const { node, runtimeValues, highlighted, focus, onPath, dimmed, index, direction } = data;
+  const { node, runtimeValues, highlighted, focus, onPath, dimmed, index, direction, foldable, folded } = data;
   const { t, type, layer, statusShort } = useI18n();
   const gap = node.status !== "known";
   // Edges run in data-flow direction: upward when ranked bottom-to-top, rightward when ranked left-to-right.
@@ -31,6 +31,13 @@ export function XRayNode({ data, selected }: NodeProps<XRayFlowNode>) {
         <span className="layer-tag">{layer(node.layer)}</span>
       </div>
       <div className="xray-node-name">{shortName(node)}</div>
+      {foldable && (
+        // Toggled by the canvas click handler (EvidenceGraph) so that dragging and selection keep working.
+        <button type="button" className={`xray-node-fold nodrag ${folded > 0 ? "is-folded" : ""}`} title={t("graph.foldHint")} aria-expanded={folded === 0}>
+          {folded > 0 ? <CaretRight size={10} weight="bold" /> : <CaretDown size={10} weight="bold" />}
+          {folded > 0 ? t("graph.folded", { n: folded }) : t("graph.unfolded")}
+        </button>
+      )}
       {gap && (
         <div className="xray-node-gap">
           <Warning size={12} weight="bold" />

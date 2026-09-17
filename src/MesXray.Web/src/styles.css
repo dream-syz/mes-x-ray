@@ -710,6 +710,44 @@ svg {
   margin-top: 3px;
 }
 
+/* Fold chip of a SQL function: folded it announces what is inside, unfolded it offers to close again. */
+.xray-node-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  padding: 1px 7px 1px 5px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: background 160ms var(--ease), color 160ms var(--ease);
+}
+
+.xray-node-fold:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.xray-node-fold:not(.is-folded) {
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+}
+
+.xray-node-fold:not(.is-folded):hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+.fold-toggle {
+  white-space: nowrap;
+}
+
 .xray-node-values {
   display: flex;
   flex-wrap: wrap;
@@ -772,6 +810,11 @@ svg {
 
 .zoom-far .xray-node-values {
   margin-top: 3px;
+}
+
+.zoom-far .xray-node-fold {
+  font-size: 13px;
+  padding: 2px 9px 2px 7px;
 }
 
 .zoom-far .value-chip {

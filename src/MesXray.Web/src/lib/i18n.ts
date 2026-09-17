@@ -47,6 +47,11 @@ const en = {
   "graph.legendValue": "live value",
   "graph.legendGap": "unknown or pending",
   "graph.legendStructural": "structural",
+  "graph.folded": "+{n} inside",
+  "graph.unfolded": "fold internals",
+  "graph.foldHint": "SQL function internals (RETURN expression, CTEs, base columns): click to fold or unfold",
+  "graph.unfoldAll": "Unfold function internals (+{n})",
+  "graph.foldAll": "Fold function internals",
   "node.gap": "{status}: need more evidence",
 
   "inspector.title": "Inspector",
@@ -186,6 +191,11 @@ const zh: Record<MessageKey, string> = {
   "graph.legendValue": "实时值",
   "graph.legendGap": "未知或待补充",
   "graph.legendStructural": "结构关系",
+  "graph.folded": "内部 +{n}",
+  "graph.unfolded": "折叠内部",
+  "graph.foldHint": "SQL 函数内部（RETURN 表达式、CTE、基表列）：点击折叠或展开",
+  "graph.unfoldAll": "展开函数内部（+{n}）",
+  "graph.foldAll": "折叠函数内部",
   "node.gap": "{status}：需要更多证据",
 
   "inspector.title": "检视器",

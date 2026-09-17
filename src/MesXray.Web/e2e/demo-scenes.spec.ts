@@ -70,6 +70,32 @@ for (const lang of LANGS) {
       await expect(page.locator(".xray-node.focus")).toContainText("availableQuantity");
       await expect(page.locator(".xray-node.highlighted .xray-node-name", { hasText: /^AF_Pick_GetAvailableQuantity$/ })).toHaveCount(1);
       await expect(page.locator(".xray-node.highlighted .xray-node-gap")).toHaveCount(0);
+
+      // Function internals start folded so the path stays readable; the inspector still lists every hop.
+      const foldChip = page.locator(".xray-node-fold");
+      await expect(foldChip).toHaveClass(/is-folded/);
+      await expect(foldChip).toHaveText(lang === "zh" ? /内部 \+\d+/ : /\+\d+ inside/);
+      await expect(page.locator(".fold-toggle")).toContainText(lang === "zh" ? "展开函数内部" : "Unfold function internals");
+      await expect(page.locator(".xray-node .xray-node-name", { hasText: /^QuantityOnHand$/ })).toHaveCount(0);
+
+      await foldChip.click();
+      await expect(foldChip).not.toHaveClass(/is-folded/);
+      await expect(foldChip).toHaveText(t("graph.unfolded"));
+      await expect(page.locator(".xray-node .xray-node-name", { hasText: /^QuantityOnHand$/ }).first()).toBeVisible();
+      await expect(page.locator('.react-flow__node[data-id="expr:dbo.AF_Pick_GetAvailableQuantity.$.RETURN"]')).toBeVisible();
+      await expect(page.locator(".fold-toggle")).toHaveText(t("graph.foldAll"));
+
+      await page.locator(".fold-toggle").click();
+      await expect(foldChip).toHaveClass(/is-folded/);
+      await expect(page.locator(".xray-node .xray-node-name", { hasText: /^QuantityOnHand$/ })).toHaveCount(0);
+
+      // Picking a hop in the inspector selects it on the canvas; a hop hidden inside the folded function opens it.
+      const selected = page.locator(".react-flow__node.selected");
+      await expect(selected).toHaveAttribute("data-id", "json:pickOrderRows.availableQuantity");
+      await hop(page, "ctecol:dbo.AF_Pick_GetAvailableQuantity.InventoryData.QuantityOnHand").click();
+      await expect(foldChip).not.toHaveClass(/is-folded/);
+      await expect(selected).toHaveAttribute("data-id", "ctecol:dbo.AF_Pick_GetAvailableQuantity.InventoryData.QuantityOnHand");
+      await expect(page.locator(".pane-right .pane-sub")).toHaveText("ctecol:dbo.AF_Pick_GetAvailableQuantity.InventoryData.QuantityOnHand");
     });
 
     test("3 live trace: PICK0843858 / T12288 values overlaid on the same lineage", async ({ page }) => {

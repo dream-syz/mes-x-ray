@@ -19,10 +19,21 @@ import type { RuntimeValue, Subgraph, TraceHop } from "../../api/types";
 import type { XRayController } from "../../state/useXRay";
 import { useI18n, type I18n } from "../../lib/I18nContext";
 import { GRAPH_COLORS } from "../../lib/presentation";
+import { planFolds, type FoldPlan } from "./fold";
 import { layoutGraph, type XRayFlowNode } from "./layout";
 import { XRayNode } from "./XRayNode";
 
 const nodeTypes = { xray: XRayNode };
+
+const NO_FOLDS: ReadonlySet<string> = new Set<string>();
+
+/** Fold state of the current trace: which functions the user opened, and what the camera should frame next. */
+interface FoldState {
+  scanKey: string;
+  unfolded: ReadonlySet<string>;
+  /** Node ids to frame after the next layout (the function just opened and its internals); null = the lit path. */
+  reveal: string[] | null;
+}
 
 function collectHopValues(hop: TraceHop, into: Map<string, RuntimeValue[]>, highlighted: Set<string>) {
   highlighted.add(hop.nodeId);
@@ -62,6 +73,9 @@ function ScanSweep({ scanKey }: { scanKey: string }) {
  */
 const FAR_ZOOM = 0.7;
 
+/** Camera frame around the given nodes (the whole graph when there are none), never closer than 1:1. */
+const frameOptions = (ids: string[], padding: number) => ({ padding, maxZoom: 1, ...(ids.length > 0 ? { nodes: ids.map((id) => ({ id })) } : {}) });
+
 /** Applies the level-of-detail class straight to the DOM so that panning and zooming never re-render React. */
 function LevelOfDetail({ target }: { target: RefObject<HTMLDivElement | null> }) {
   useOnViewportChange({
@@ -96,17 +110,24 @@ function Canvas({ controller }: { controller: XRayController }) {
     return () => observer.disconnect();
   }, []);
 
+  // Functions the lineage enters start folded; the state belongs to one trace and resets with the next one.
+  const [foldState, setFoldState] = useState<FoldState>({ scanKey: "", unfolded: NO_FOLDS, reveal: null });
+  const unfolded = foldState.scanKey === scanKey ? foldState.unfolded : NO_FOLDS;
+  const reveal = foldState.scanKey === scanKey ? foldState.reveal : null;
+
   const layout = useMemo(() => {
-    if (!subgraph) return { nodes: [] as XRayFlowNode[], edges: [] };
+    if (!subgraph) return { nodes: [] as XRayFlowNode[], edges: [], fitIds: [] as string[], fold: null as FoldPlan | null, focusId: null as string | null };
     const runtimeValues = new Map<string, RuntimeValue[]>();
     const highlighted = new Set<string>();
     const pathNodeIds = new Set<string>();
     let focusId: string | null = null;
+    let fold: FoldPlan | null = null;
 
     if (state.mode !== "architecture" && state.trace && subgraph === state.trace.graph) {
       collectHopValues(state.trace.root, runtimeValues, highlighted);
       for (const n of state.trace.executionPath) pathNodeIds.add(n.id);
       focusId = state.trace.field.id;
+      fold = planFolds(state.trace, unfolded);
     } else if (state.tab === "impact" && state.impact && subgraph === state.impact.graph) {
       focusId = state.impact.origin.id;
       for (const path of state.impact.keyPaths) for (const id of path) highlighted.add(id);
@@ -125,8 +146,23 @@ function Canvas({ controller }: { controller: XRayController }) {
       }
     }
 
-    return layoutGraph({ nodes: subgraph.nodes, edges: subgraph.edges, runtimeValues, highlighted, pathNodeIds, focusId, aspect, lang });
-  }, [subgraph, state.mode, state.trace, state.impact, state.tab, state.live, state.scope, state.architecture, state.overview, aspect, lang]);
+    const result = layoutGraph({
+      nodes: subgraph.nodes,
+      edges: subgraph.edges,
+      runtimeValues,
+      highlighted,
+      pathNodeIds,
+      focusId,
+      aspect,
+      lang,
+      hidden: fold?.hidden,
+      folded: fold?.folded,
+      foldable: fold ? new Set(fold.internals.keys()) : undefined,
+    });
+    // A trace is framed on its lit path (the traced lineage and the execution path), so the story is legible at first
+    // sight and the dimmed structure around it is where the eye can wander; the other views are framed whole.
+    return { ...result, fitIds: fold ? result.litIds : [], fold, focusId };
+  }, [subgraph, state.mode, state.trace, state.impact, state.tab, state.live, state.scope, state.architecture, state.overview, aspect, lang, unfolded]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<XRayFlowNode>(layout.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(layout.edges);
@@ -145,16 +181,19 @@ function Canvas({ controller }: { controller: XRayController }) {
   // (interrupted gesture), the camera snaps into place instead of stopping halfway.
   useEffect(() => {
     if (!nodesInitialized || layout.nodes.length === 0) return;
+    const visible = new Set(layout.nodes.map((n) => n.id));
+    const target = (reveal ?? layout.fitIds).filter((id) => visible.has(id));
+    const frame = frameOptions(target, target.length > 0 ? 0.12 : 0.08);
     let fallback: number | undefined;
     const handle = window.setTimeout(() => {
       let settled = false;
-      void fitView({ padding: 0.08, duration: 400 }).then(() => {
+      void fitView({ ...frame, duration: 400 }).then(() => {
         settled = true;
       });
       setNodes((current) => [...current]);
       fallback = window.setTimeout(() => {
         if (!settled) {
-          void fitView({ padding: 0.08, duration: 0 });
+          void fitView({ ...frame, duration: 0 });
           setNodes((current) => [...current]);
         }
       }, 700);
@@ -163,9 +202,74 @@ function Canvas({ controller }: { controller: XRayController }) {
       window.clearTimeout(handle);
       if (fallback !== undefined) window.clearTimeout(fallback);
     };
-  }, [nodesInitialized, layoutVersion, layout.nodes.length, fitView, setNodes]);
+  }, [nodesInitialized, layoutVersion, layout.nodes, layout.fitIds, reveal, fitView, setNodes]);
 
-  const onNodeClick: NodeMouseHandler<XRayFlowNode> = (_event, node) => void selectNode(node.id);
+  const fold = layout.fold;
+  const foldedCount = fold ? [...fold.folded.values()].reduce((sum, n) => sum + n, 0) : 0;
+
+  // A hop picked in the inspector is mirrored on the canvas: the node gets selected and the camera glides to it and
+  // its direct neighbours at a legible zoom; a hop hidden inside a folded function opens that function first, and the
+  // traced field itself (the root of the tree) brings the whole lit path back. Clicks on the canvas only select: that
+  // node is in view already.
+  const selectedNodeId = state.selectedNodeId;
+  const canvasClickRef = useRef<string | null>(null);
+  const followedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (layout.nodes.length === 0) return;
+    setNodes((current) => current.map((n) => ((n.selected ?? false) === (n.id === selectedNodeId) ? n : { ...n, selected: n.id === selectedNodeId })));
+    if (!selectedNodeId || followedRef.current === selectedNodeId) return;
+    followedRef.current = selectedNodeId;
+    if (canvasClickRef.current === selectedNodeId) {
+      canvasClickRef.current = null;
+      return;
+    }
+    const visible = new Set(layout.nodes.map((n) => n.id));
+    if (selectedNodeId === layout.focusId) {
+      void fitView({ ...frameOptions(layout.fitIds.filter((id) => visible.has(id)), 0.12), duration: 400 });
+      return;
+    }
+    const neighbours = (subgraph?.edges ?? [])
+      .filter((e) => e.fromNodeId === selectedNodeId || e.toNodeId === selectedNodeId)
+      .map((e) => (e.fromNodeId === selectedNodeId ? e.toNodeId : e.fromNodeId));
+    const frame = [selectedNodeId, ...neighbours];
+    if (!visible.has(selectedNodeId)) {
+      const owner = fold ? [...fold.internals].find(([, ids]) => ids.includes(selectedNodeId))?.[0] : undefined;
+      if (owner) setFoldState({ scanKey, unfolded: new Set([...unfolded, owner]), reveal: frame });
+      return;
+    }
+    void fitView({ ...frameOptions(frame.filter((id) => visible.has(id)), 0.25), duration: 400 });
+  }, [selectedNodeId, layoutVersion, layout.nodes, layout.focusId, layout.fitIds, subgraph, fold, scanKey, unfolded, fitView, setNodes]);
+
+  /**
+   * Opens or closes the internals of one function. Opening dives the camera into the function's data path (the
+   * RETURN expression down to the base columns); the branch conditions around it stay in the picture at its edges.
+   */
+  const toggleFold = (hopId: string) => {
+    if (!fold || !fold.internals.has(hopId)) return;
+    const next = new Set(unfolded);
+    if (next.has(hopId)) {
+      next.delete(hopId);
+      setFoldState({ scanKey, unfolded: next, reveal: null });
+    } else {
+      next.add(hopId);
+      setFoldState({ scanKey, unfolded: next, reveal: [hopId, ...(fold.spines.get(hopId) ?? [])] });
+    }
+  };
+  const unfoldAll = () => {
+    if (!fold) return;
+    setFoldState({ scanKey, unfolded: new Set(fold.internals.keys()), reveal: [...fold.spines].flatMap(([id, ids]) => [id, ...ids]) });
+  };
+  const foldAll = () => setFoldState({ scanKey, unfolded: NO_FOLDS, reveal: null });
+
+  const onNodeClick: NodeMouseHandler<XRayFlowNode> = (event, node) => {
+    // The fold chip on a function node toggles its internals instead of selecting the node.
+    if ((event.target as HTMLElement | null)?.closest?.(".xray-node-fold")) {
+      toggleFold(node.id);
+      return;
+    }
+    canvasClickRef.current = node.id;
+    void selectNode(node.id);
+  };
 
   const minimapColor = (n: XRayFlowNode) => {
     if (n.data.focus || n.data.highlighted || n.data.onPath) return GRAPH_COLORS.accent;
@@ -179,6 +283,11 @@ function Canvas({ controller }: { controller: XRayController }) {
         <h2>{t("graph.title")}</h2>
         <span className="pane-sub">{title}</span>
         {subgraph?.truncated && <span className="chip-warn">{t("graph.truncated")}</span>}
+        {fold && fold.internals.size > 0 && (
+          <button type="button" className="btn ghost small fold-toggle" onClick={foldedCount > 0 ? unfoldAll : foldAll} title={t("graph.foldHint")}>
+            {foldedCount > 0 ? t("graph.unfoldAll", { n: foldedCount }) : t("graph.foldAll")}
+          </button>
+        )}
         <div className="legend">
           <span className="legend-item">
             <i /> {t("graph.legendPath")}

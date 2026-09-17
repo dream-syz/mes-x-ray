@@ -39,6 +39,7 @@ Click **`availableQuantity`** in the Response Tree (bold = key field). Inspector
 - The `@WMS_Enabled = 1` branch does not stop at the function call: `AF_Pick_GetAvailableQuantity` is Known (its sanitized definition is in the fixture) and the trace continues through its RETURN expression
   `IF EXISTS (DET2_ILG_ProductDeliveryMethod WHERE DIP.DeliveryMethod = 'LVP' ...) RETURN 1000 ELSE RETURN ISNULL(SUM(QuantityOnHand), 0)`
   into the `InventoryData` CTE (`CASE WHEN @UseQuantityAllocated = 1 ... WHEN PG.Group_ = 'ECU' ... ELSE ISNULL(I.QuantityOnHand, 0) END`) down to `INVENTORY2.QuantityOnHand` / `QuantityAllocated`, `PRODUCT_GROUP.Group_` and the `DET2_ILG_ProductDeliveryMethod` columns that decide the branches. `trace.unknowns` is empty.
+- On the graph those internals start folded into the function node (`+n inside`) so the path stays readable; click the chip or **Unfold function internals** to dive into the RETURN expression and the base columns. The inspector always lists every hop, and clicking one there moves the camera to that node (opening the function if the hop is inside it); clicking the traced field at the top brings the whole path back.
 
 Deep link: `/?field=availableQuantity`
 

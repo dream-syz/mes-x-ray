@@ -38,6 +38,8 @@
 
 ![溯源 availableQuantity](02-trace-source.png)
 
+![展开函数内部](02-trace-source-unfolded.png)
+
 **动作**：在左侧响应树点 **availableQuantity**（高亮色的是演示重点字段）。图切到「实时追踪」视图并聚焦这条链，右侧检视器打开「溯源」页。
 
 **台词**：
@@ -46,7 +48,7 @@
 > 这个 CASE 按 `@WMS_Enabled` 分两支：0 走本地库存乘 10，1 走 UDF。两条分支的条件都在图上，参数是一条「受控于」的边。
 > 血缘没有在函数调用处停下。`AF_Pick_GetAvailableQuantity` 的脱敏定义已经在 fixture 里，扫描器沿它的 RETURN 继续追：`IF EXISTS (... DeliveryMethod = 'LVP' ...) RETURN 1000 ELSE RETURN ISNULL(SUM(QuantityOnHand), 0)`，再进到 `InventoryData` 这个 CTE 的 CASE，最后落到 `INVENTORY2.QuantityOnHand` / `QuantityAllocated`、`PRODUCT_GROUP.Group_` 和 `DET2_ILG_ProductDeliveryMethod` 的几列。
 
-**看点**：图沿数据流方向排布，自下而上；边上的标签就是关系类型。图的下半部分整块都是函数内部：RETURN 表达式、CTE、CASE、基表列。这条链上没有虚线框。
+**看点**：图沿数据流方向排布，自下而上；边上的标签就是关系类型。函数内部默认折叠在 `AF_Pick_GetAvailableQuantity` 上（芯片「内部 +n」），相机先框住执行路径和血缘主干，节点保持可读。点芯片或标题栏「展开函数内部」再钻进 RETURN / CTE / 基表列；也可以直接点右侧任意一跳，相机会滑到那个节点（藏在函数里的会自动展开），点最上面的字段本身回到全貌。这条链上没有虚线框。
 
 ## 阶段 3（1:15 - 2:00）实时追踪：把真实取值叠上去
 
@@ -135,4 +137,4 @@
 
 ## 截图
 
-本目录下的 PNG 由 `npm run demo:shots`（Playwright，1600 x 1000）生成，用的是和 e2e 用例同一份场景定义，UI 语言为中文；`04-investigate-en.png` 是同一场景的英文版。改了界面或 fixture 之后重跑一次即可更新。它们只是讲稿的配图，现场以运行中的界面为准。
+本目录下的 PNG 由 `npm run demo:shots`（Playwright，1600 x 1000）生成，用的是和 e2e 用例同一份场景定义，UI 语言为中文；`02-trace-source-unfolded.png` 是场景 2 展开函数内部后的图，`04-investigate-en.png` 是场景 4 的英文版。改了界面或 fixture 之后重跑一次即可更新。它们只是讲稿的配图，现场以运行中的界面为准。
