@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Play, Stop } from "@phosphor-icons/react";
 import {
   Background,
   BackgroundVariant,
@@ -20,12 +21,32 @@ import type { XRayController } from "../../state/useXRay";
 import { useI18n, type I18n } from "../../lib/I18nContext";
 import { GRAPH_COLORS } from "../../lib/presentation";
 import { planFolds, type FoldPlan } from "./fold";
-import { layoutGraph, type XRayFlowNode } from "./layout";
+import { layoutGraph, type ReplayMark, type XRayFlowEdge, type XRayFlowNode } from "./layout";
+import { planReplay, type ReplayStep } from "./replay";
+import { XRayEdge } from "./XRayEdge";
 import { XRayNode } from "./XRayNode";
 
 const nodeTypes = { xray: XRayNode };
+const edgeTypes = { xray: XRayEdge };
 
 const NO_FOLDS: ReadonlySet<string> = new Set<string>();
+
+/** Replay pacing: one step per layer of the path, then a hold once the value has landed in the field. */
+const REPLAY_STEP_MS = 520;
+const REPLAY_ARRIVE_MS = 1800;
+/** A deep-linked replay starts once the scan sweep (900 ms) and the camera glide (400 ms) are over. */
+const REPLAY_AUTO_DELAY_MS = 1500;
+/** A node on both legs keeps the stronger state (the function is called on the way down and returns on the way up). */
+const REPLAY_WEIGHT: Record<ReplayMark, number> = { pending: 0, visited: 1, current: 2, arrived: 3 };
+
+/** A running (or armed) replay of the current trace. */
+interface ReplayState {
+  scanKey: string;
+  steps: ReplayStep[];
+  /** Step on screen; -1 = armed (the path is dark, nothing has moved yet), steps.length = the value has arrived. */
+  index: number;
+  running: boolean;
+}
 
 /** Fold state of the current trace: which functions the user opened, and what the camera should frame next. */
 interface FoldState {
@@ -116,7 +137,9 @@ function Canvas({ controller }: { controller: XRayController }) {
   const reveal = foldState.scanKey === scanKey ? foldState.reveal : null;
 
   const layout = useMemo(() => {
-    if (!subgraph) return { nodes: [] as XRayFlowNode[], edges: [], fitIds: [] as string[], fold: null as FoldPlan | null, focusId: null as string | null };
+    if (!subgraph) {
+      return { nodes: [] as XRayFlowNode[], edges: [] as XRayFlowEdge[], fitIds: [] as string[], litIds: [] as string[], fold: null as FoldPlan | null, focusId: null as string | null };
+    }
     const runtimeValues = new Map<string, RuntimeValue[]>();
     const highlighted = new Set<string>();
     const pathNodeIds = new Set<string>();
@@ -165,7 +188,7 @@ function Canvas({ controller }: { controller: XRayController }) {
   }, [subgraph, state.mode, state.trace, state.impact, state.tab, state.live, state.scope, state.architecture, state.overview, aspect, lang, unfolded]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<XRayFlowNode>(layout.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(layout.edges);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<XRayFlowEdge>(layout.edges);
   const nodesInitialized = useNodesInitialized();
   const [layoutVersion, setLayoutVersion] = useState(0);
 
@@ -206,6 +229,80 @@ function Canvas({ controller }: { controller: XRayController }) {
 
   const fold = layout.fold;
   const foldedCount = fold ? [...fold.folded.values()].reduce((sum, n) => sum + n, 0) : 0;
+
+  // Replay: the traced path goes dark and lights up step by step, down the call chain and back up the data flow
+  // (replay.ts). It is a light show over the current layout, so folding, a new trace or a resize cancels it.
+  const [replay, setReplay] = useState<ReplayState | null>(null);
+  const replayable = fold !== null && state.trace !== null && layout.litIds.length > 1;
+  const startReplay = useCallback(
+    (armed = false) => {
+      if (!fold || !state.trace) return;
+      setReplay({ scanKey, steps: planReplay(state.trace, fold.hidden), index: armed ? -1 : 0, running: !armed });
+    },
+    [fold, state.trace, scanKey],
+  );
+  const stopReplay = () => setReplay(null);
+  useEffect(() => setReplay(null), [layout]);
+
+  useEffect(() => {
+    if (!replay?.running) return;
+    const arrived = replay.index >= replay.steps.length;
+    const handle = window.setTimeout(() => {
+      setReplay((r) => (!r || !r.running ? r : r.index >= r.steps.length ? null : { ...r, index: r.index + 1 }));
+    }, arrived ? REPLAY_ARRIVE_MS : REPLAY_STEP_MS);
+    return () => window.clearTimeout(handle);
+  }, [replay]);
+
+  // The replay state is painted onto the nodes and edges React Flow holds: a mark per node, and per edge either the
+  // pulse of the current step or the dark class of a step still to come. Nothing else about them changes.
+  const edgeBaseClass = useMemo(() => new Map(layout.edges.map((e) => [e.id, e.className ?? ""])), [layout.edges]);
+  useEffect(() => {
+    const marks = new Map<string, ReplayMark>();
+    const pulses = new Map<string, { key: number; reverse: boolean }>();
+    const ahead = new Set<string>();
+    const behind = new Set<string>();
+    if (replay && replay.scanKey === scanKey) {
+      replay.steps.forEach((step, i) => {
+        const mark: ReplayMark = i < replay.index ? "visited" : i === replay.index ? "current" : "pending";
+        for (const id of step.nodeIds) {
+          const previous = marks.get(id);
+          if (!previous || REPLAY_WEIGHT[mark] > REPLAY_WEIGHT[previous]) marks.set(id, mark);
+        }
+        for (const e of step.edges) {
+          if (i === replay.index) pulses.set(e.id, { key: i, reverse: e.reverse });
+          (i > replay.index ? ahead : behind).add(e.id);
+        }
+      });
+      if (replay.index >= replay.steps.length && layout.focusId) marks.set(layout.focusId, "arrived");
+    }
+    setNodes((current) => current.map((n) => (n.data.replay === marks.get(n.id) ? n : { ...n, data: { ...n.data, replay: marks.get(n.id) } })));
+    setEdges((current) =>
+      current.map((e) => {
+        const pulse = pulses.get(e.id) ?? null;
+        const dark = ahead.has(e.id) && !behind.has(e.id);
+        const base = edgeBaseClass.get(e.id) ?? "";
+        const className = dark ? `${base} edge-replay-dark` : pulse ? `${base} edge-replay-pulse` : base;
+        const had = e.data?.pulse ?? null;
+        const samePulse = had === pulse || (had !== null && pulse !== null && had.key === pulse.key && had.reverse === pulse.reverse);
+        if (samePulse && className === (e.className ?? "")) return e;
+        return { ...e, className, data: { edge: e.data!.edge, pulse: pulse ? { ...pulse, ms: REPLAY_STEP_MS } : null } };
+      }),
+    );
+  }, [replay, scanKey, layoutVersion, layout.focusId, edgeBaseClass, setNodes, setEdges]);
+
+  // Deep links (`replay=1` / `replay=hold`) replay every trace as it arrives, once the sweep and the glide are over.
+  const startRef = useRef(startReplay);
+  startRef.current = startReplay;
+  const autoReplayedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const mode = state.replayOnLoad;
+    if (!mode || !replayable || !nodesInitialized || autoReplayedRef.current === scanKey) return;
+    const handle = window.setTimeout(() => {
+      autoReplayedRef.current = scanKey;
+      startRef.current(mode === "hold");
+    }, REPLAY_AUTO_DELAY_MS);
+    return () => window.clearTimeout(handle);
+  }, [state.replayOnLoad, replayable, nodesInitialized, scanKey]);
 
   // A hop picked in the inspector is mirrored on the canvas: the node gets selected and the camera glides to it and
   // its direct neighbours at a legible zoom; a hop hidden inside a folded function opens that function first, and the
@@ -288,6 +385,17 @@ function Canvas({ controller }: { controller: XRayController }) {
             {foldedCount > 0 ? t("graph.unfoldAll", { n: foldedCount }) : t("graph.foldAll")}
           </button>
         )}
+        {replayable && (
+          <button
+            type="button"
+            className={`btn ghost small replay-toggle ${replay?.running ? "is-running" : ""}`}
+            onClick={() => (replay?.running ? stopReplay() : startReplay())}
+            title={t("graph.replayHint")}
+          >
+            {replay?.running ? <Stop size={11} weight="fill" /> : <Play size={11} weight="fill" />}
+            {replay?.running ? t("graph.replayStop") : t("graph.replay")}
+          </button>
+        )}
         <div className="legend">
           <span className="legend-item">
             <i /> {t("graph.legendPath")}
@@ -309,6 +417,7 @@ function Canvas({ controller }: { controller: XRayController }) {
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClick}

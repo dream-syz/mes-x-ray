@@ -124,6 +124,51 @@ for (const lang of LANGS) {
       await expect(page.locator(".xray-node.focus .value-chip")).toContainText("T12288: 0");
     });
 
+    test("3r replay: the call goes down the execution path, the value comes back up into the field", async ({ page }) => {
+      // `replay=hold` arms the replay: the traced path is dark, values are hidden, nothing has moved yet.
+      await openScene(page, SCENES.liveTraceArmed, lang);
+      const toggle = page.locator(".replay-toggle");
+      const node = (id: string) => page.locator(`.react-flow__node[data-id="${id}"] .xray-node`);
+      const field = node("json:pickOrderRows.availableQuantity");
+      const pageNode = node("page:WebVP.PickOrderDetails");
+      const procedure = node("sp:dbo.AP_Pick_GetPickOrderRows");
+
+      await expect(toggle).toHaveText(t("graph.replay"));
+      await expect(field).toHaveClass(/replay-pending/);
+      await expect(field.locator(".value-chip")).toBeHidden();
+      expect(await page.locator(".xray-node.replay-pending").count()).toBeGreaterThan(10);
+      expect(await page.locator(".react-flow__edge.edge-replay-dark").count()).toBeGreaterThan(10);
+
+      // Start: the page lights first, the procedure and the field are still dark; the pulse travels the edges.
+      await toggle.click();
+      await expect(toggle).toHaveText(t("graph.replayStop"));
+      await expect(pageNode).toHaveClass(/replay-(current|visited)/);
+      await expect(procedure).toHaveClass(/replay-pending/);
+      await expect(field).toHaveClass(/replay-pending/);
+      await expect(page.locator(".edge-pulse").first()).toBeAttached();
+
+      // The value lands: the field rings with its live value, then the replay clears and the ordinary lit look is back.
+      await expect(field).toHaveClass(/replay-arrived/);
+      await expect(field.locator(".value-chip")).toHaveText("T12288: 0");
+      await expect(page.locator(".xray-node[class*='replay-']")).toHaveCount(0);
+      await expect(toggle).toHaveText(t("graph.replay"));
+      await expect(page.locator(".xray-node.focus .value-chip")).toContainText("T12288: 0");
+
+      // Stopping halfway drops every replay state at once.
+      await toggle.click();
+      await expect(toggle).toHaveText(t("graph.replayStop"));
+      await toggle.click();
+      await expect(toggle).toHaveText(t("graph.replay"));
+      await expect(page.locator(".xray-node[class*='replay-']")).toHaveCount(0);
+      await expect(page.locator(".edge-pulse")).toHaveCount(0);
+
+      // `replay=1` plays by itself once the trace is on screen.
+      await openScene(page, SCENES.liveTraceReplay, lang);
+      await expect(toggle).toHaveText(t("graph.replayStop"));
+      await expect(field).toHaveClass(/replay-arrived/);
+      await expect(toggle).toHaveText(t("graph.replay"));
+    });
+
     test("4 investigate: inside the UDF, the 0 is explained by a hypothesis, so Need More Evidence", async ({ page, request }) => {
       await openScene(page, SCENES.investigate, lang);
       const view = page.locator(".explain-view");

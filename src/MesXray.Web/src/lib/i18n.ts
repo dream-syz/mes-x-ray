@@ -52,6 +52,9 @@ const en = {
   "graph.foldHint": "SQL function internals (RETURN expression, CTEs, base columns): click to fold or unfold",
   "graph.unfoldAll": "Unfold function internals (+{n})",
   "graph.foldAll": "Fold function internals",
+  "graph.replay": "Replay flow",
+  "graph.replayStop": "Stop replay",
+  "graph.replayHint": "Replay the trace as motion: the call goes down the execution path, then the value comes back up the data flow into the field",
   "node.gap": "{status}: need more evidence",
 
   "inspector.title": "Inspector",
@@ -196,6 +199,9 @@ const zh: Record<MessageKey, string> = {
   "graph.foldHint": "SQL 函数内部（RETURN 表达式、CTE、基表列）：点击折叠或展开",
   "graph.unfoldAll": "展开函数内部（+{n}）",
   "graph.foldAll": "折叠函数内部",
+  "graph.replay": "回放流转",
+  "graph.replayStop": "停止回放",
+  "graph.replayHint": "把这次追踪回放成动画：调用沿执行路径向下，取值再沿数据流向上回到字段",
   "node.gap": "{status}：需要更多证据",
 
   "inspector.title": "检视器",

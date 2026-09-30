@@ -61,7 +61,7 @@
 > T12288：pickQuantity = 18，onHandQuantity = 0，allocatedQuantity = 18，availableQuantity = 0。`WMS_Enabled` 的运行时取值是 1。
 > 注意来源：pickQuantity 是 `AP_Pick_GetPickOrderRows` 里对 `APPQD.Quantity` 的求和，onHand 和 allocated 来自 `AP_Pick_GetPickStorageBin`，三个数最后都落在表列上。Available 不一样：它是同一个存储过程里的 CASE，`WMS_Enabled = 1` 时走 UDF。所以它是 0 而别的不是，这不是巧合，是来源不同。
 
-**看点**：节点上的取值芯片带 `T12288:` 前缀，表示是行级作用域；顶部 FIXTURE 徽标和 trace id 一直可见，说明数据来自哪里。
+**看点**：节点上的取值芯片带 `T12288:` 前缀，表示是行级作用域；顶部 FIXTURE 徽标和 trace id 一直可见，说明数据来自哪里。图标题栏的「▶ 回放流转」把这次追踪播成动画：路径先变暗，调用沿执行路径逐节点向下、每条边上跑一个光点，然后取值沿血缘逐层向上，最后落进 `availableQuantity` 并亮出 `T12288: 0`（约 10 秒）。现场想让观众「看见流转」就点它一次；录视频用深链 `&replay=1`。
 
 ## 阶段 4（2:00 - 3:15）调查：假设就标假设
 

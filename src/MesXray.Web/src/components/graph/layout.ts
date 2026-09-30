@@ -26,9 +26,21 @@ export interface XRayNodeData extends Record<string, unknown> {
   foldable: boolean;
   /** Number of internal nodes currently folded into this node; 0 when unfolded. */
   folded: number;
+  /** State during a replay of the trace (replay.ts): dark until the replay reaches the node, lit from then on. */
+  replay?: ReplayMark;
 }
 
+export type ReplayMark = "pending" | "current" | "visited" | "arrived";
+
 export type XRayFlowNode = Node<XRayNodeData, "xray">;
+
+export interface XRayEdgeData extends Record<string, unknown> {
+  edge: GraphEdge;
+  /** A replay pulse travelling this edge once; `key` restarts the motion when the same edge is pulsed again. */
+  pulse?: { key: number; reverse: boolean; ms: number } | null;
+}
+
+export type XRayFlowEdge = Edge<XRayEdgeData, "xray">;
 
 export const NODE_WIDTH = 200;
 export const NODE_HEIGHT = 56;
@@ -44,7 +56,7 @@ const nodeSize = (id: string, foldable?: Set<string>) => ({
  * Data flows from the Data layer to the Web layer. A `dependsOn` edge (expr -> column) points against the flow,
  * so it is reversed for layout; `flowsTo` and `structural` edges are used as-is.
  */
-const flowPair = (edge: GraphEdge): [string, string] => (edge.direction === "dependsOn" ? [edge.toNodeId, edge.fromNodeId] : [edge.fromNodeId, edge.toNodeId]);
+export const flowPair = (edge: GraphEdge): [string, string] => (edge.direction === "dependsOn" ? [edge.toNodeId, edge.fromNodeId] : [edge.fromNodeId, edge.toNodeId]);
 
 export interface LayoutInput {
   nodes: GraphNode[];
@@ -67,7 +79,7 @@ export interface LayoutInput {
 
 export interface LayoutResult {
   nodes: XRayFlowNode[];
-  edges: Edge[];
+  edges: XRayFlowEdge[];
   direction: RankDirection;
   /** Ids of the lit nodes (traced lineage, execution path, focus) that are visible: what the camera frames first. */
   litIds: string[];
@@ -154,7 +166,7 @@ export function layoutGraph(input: LayoutInput): LayoutResult {
     };
   });
 
-  const edges: Edge[] = input.edges
+  const edges: XRayFlowEdge[] = input.edges
     .filter((edge) => ids.has(edge.fromNodeId) && ids.has(edge.toNodeId))
     .map((edge) => {
       const [source, target] = flowPair(edge);
@@ -171,7 +183,7 @@ export function layoutGraph(input: LayoutInput): LayoutResult {
         source,
         target,
         label,
-        type: "smoothstep",
+        type: "xray" as const,
         animated: lit && !structural,
         className: classes,
         style: { strokeDasharray: structural ? "4 4" : undefined, strokeWidth: lit ? 2 : 1.2 },
@@ -180,7 +192,7 @@ export function layoutGraph(input: LayoutInput): LayoutResult {
         labelBgPadding: [5, 2] as [number, number],
         labelBgBorderRadius: 3,
         markerEnd: { type: "arrowclosed" as const, width: 14, height: 14, color: lit ? GRAPH_COLORS.accent : structural ? GRAPH_COLORS.edgeStructural : GRAPH_COLORS.edge },
-        data: { edge },
+        data: { edge, pulse: null },
       };
     });
 

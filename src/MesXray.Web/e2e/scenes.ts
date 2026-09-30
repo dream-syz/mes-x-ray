@@ -10,10 +10,13 @@ export interface Scene {
   shot: string;
 }
 
-export const SCENES: Record<"architecture" | "traceSource" | "liveTrace" | "investigate" | "impact" | "storageBin" | "destinationWagon", Scene> = {
+export const SCENES: Record<"architecture" | "traceSource" | "liveTrace" | "liveTraceReplay" | "liveTraceArmed" | "investigate" | "impact" | "storageBin" | "destinationWagon", Scene> = {
   architecture: { id: "1 architecture", query: "", shot: "01-architecture" },
   traceSource: { id: "2 trace source", query: "field=availableQuantity", shot: "02-trace-source" },
   liveTrace: { id: "3 live trace", query: "order=PICK0843858&field=availableQuantity&scope=T12288", shot: "03-live-trace" },
+  // Replay of the flow (video kit): `replay=1` plays as soon as the trace is on screen, `replay=hold` darkens the path and waits.
+  liveTraceReplay: { id: "3r live trace replay", query: "order=PICK0843858&field=availableQuantity&scope=T12288&replay=1", shot: "03-live-trace-replay" },
+  liveTraceArmed: { id: "3a live trace armed", query: "order=PICK0843858&field=availableQuantity&scope=T12288&replay=hold", shot: "03-live-trace-armed" },
   investigate: { id: "4 investigate", query: "order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1", shot: "04-investigate" },
   impact: { id: "5 impact", query: "impact=param:WMS_Enabled", shot: "05-impact" },
   storageBin: { id: "6 storage bin", query: "order=PICK0843858&field=json:pickOrderRows.pickStorageBin.storageBin&scope=T12288", shot: "06-storage-bin" },

@@ -6,7 +6,7 @@ import { formatValue, shortName } from "../../lib/presentation";
 import type { XRayFlowNode } from "./layout";
 
 export function XRayNode({ data, selected }: NodeProps<XRayFlowNode>) {
-  const { node, runtimeValues, highlighted, focus, onPath, dimmed, index, direction, foldable, folded } = data;
+  const { node, runtimeValues, highlighted, focus, onPath, dimmed, index, direction, foldable, folded, replay } = data;
   const { t, type, layer, statusShort } = useI18n();
   const gap = node.status !== "known";
   // Edges run in data-flow direction: upward when ranked bottom-to-top, rightward when ranked left-to-right.
@@ -19,6 +19,7 @@ export function XRayNode({ data, selected }: NodeProps<XRayFlowNode>) {
     onPath ? "on-path" : "",
     dimmed && !selected ? "dimmed" : "",
     selected ? "selected" : "",
+    replay ? `replay-${replay}` : "",
   ]
     .filter(Boolean)
     .join(" ");

@@ -112,14 +112,11 @@ svg {
   }
 }
 
+/* Only a `from`: the node lands on whatever its classes say (opacity 1, or 0.3 when it is dimmed), never on a fixed 1. */
 @keyframes node-in {
   from {
     opacity: 0;
     transform: translateY(8px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
   }
 }
 
@@ -157,6 +154,31 @@ svg {
   }
   50% {
     opacity: 0.35;
+  }
+}
+
+/* Replay: a ring ignites around a node when the flow reaches it; the traced field rings twice once the value has landed. */
+@keyframes replay-ignite {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 var(--accent-glow);
+  }
+  35% {
+    transform: scale(1.04);
+    box-shadow: 0 0 0 7px var(--accent-glow), 0 0 30px -2px var(--accent);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 1px var(--accent), 0 0 20px -4px var(--accent-glow);
+  }
+}
+
+@keyframes replay-arrive {
+  0% {
+    box-shadow: 0 0 0 1px var(--accent), 0 0 0 0 var(--accent);
+  }
+  100% {
+    box-shadow: 0 0 0 1px var(--accent), 0 0 0 18px transparent;
   }
 }
 
@@ -630,6 +652,7 @@ svg {
 
 .xray-node {
   --i: 0;
+  position: relative;
   width: 200px;
   min-height: 56px;
   border: 1px solid var(--line-strong);
@@ -638,7 +661,8 @@ svg {
   background: var(--surface-2);
   color: var(--ink);
   transition: opacity 260ms var(--ease), box-shadow 200ms var(--ease), border-color 200ms var(--ease), background 200ms var(--ease);
-  animation: node-in 380ms var(--ease) both;
+  /* Fills backwards only: once in, the node's opacity is ruled by its classes again (dimmed, replay-pending). */
+  animation: node-in 380ms var(--ease) backwards;
   animation-delay: min(calc(var(--i) * 14ms), 420ms);
 }
 
@@ -773,6 +797,52 @@ svg {
   color: var(--ink-2);
 }
 
+/*
+  Replay states (replay.ts). The path goes dark first; each step ignites its nodes and their values fade in; the
+  traced field rings when the value arrives. The rules sit after the lit/focus rules on purpose: they win while a
+  replay is on and disappear with it, leaving the ordinary lit look behind. The rings run on a pseudo-element so
+  that the node's own entry animation is never restarted by a class change.
+*/
+.xray-node.replay-pending {
+  opacity: 0.3;
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+  box-shadow: none;
+  outline-color: transparent;
+}
+
+.xray-node.replay-pending .xray-node-values {
+  visibility: hidden;
+}
+
+.xray-node.replay-current {
+  border-color: var(--accent);
+  background: #173543;
+}
+
+.xray-node.replay-current::after,
+.xray-node.replay-arrived::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.xray-node.replay-current::after {
+  animation: replay-ignite 520ms var(--ease) both;
+}
+
+.xray-node.replay-arrived::after {
+  animation: replay-arrive 900ms var(--ease) 2;
+}
+
+.xray-node.replay-current .value-chip,
+.xray-node.replay-visited .value-chip,
+.xray-node.replay-arrived .value-chip {
+  animation: fade-up 320ms var(--ease) both;
+}
+
 .handle {
   width: 6px !important;
   height: 6px !important;
@@ -843,6 +913,39 @@ svg {
 
 .react-flow__edge.edge-dimmed {
   opacity: 0.18;
+}
+
+/* Replay: edges the flow has not reached are plain and still; the edge being travelled glows under the pulse. */
+.react-flow__edge.edge-replay-dark {
+  opacity: 0.35;
+}
+
+.react-flow__edge.edge-path.edge-replay-dark path.react-flow__edge-path {
+  stroke: rgba(255, 255, 255, 0.3);
+  stroke-dasharray: 0;
+  animation: none;
+  filter: none;
+}
+
+.react-flow__edge.edge-path.edge-replay-pulse path.react-flow__edge-path {
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 6px var(--accent));
+}
+
+.edge-pulse {
+  fill: #fff;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 8px var(--accent));
+  pointer-events: none;
+}
+
+.replay-toggle {
+  white-space: nowrap;
+}
+
+.replay-toggle.is-running {
+  color: var(--accent);
 }
 
 .react-flow__edge-text {

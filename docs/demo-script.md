@@ -51,7 +51,9 @@ Header: pick order `PICK0843858` → **Trace**, material `T12288`. The Response 
 
 Talking point: Pick = 18, OnHand = 0, Allocated = 18, but Available comes from a *different* source (the UDF branch), which is why it is 0 while the others are not.
 
-Deep link: `/?order=PICK0843858&field=availableQuantity&scope=T12288`
+**Replay flow** (graph toolbar, ▶): the traced path goes dark, the call runs down the execution path node by node with a pulse on each edge, then the value comes back up the lineage layer by layer and lands in `availableQuantity` with its `T12288: 0` chip (about 10 s). It replays whatever is unfolded, so unfold the function first to watch the value rise from `INVENTORY2`. Folding, a new trace or a resize cancels it.
+
+Deep link: `/?order=PICK0843858&field=availableQuantity&scope=T12288` — add `&replay=1` to replay as soon as the trace is on screen (recording), `&replay=hold` to darken the path and wait for the button (first frame of the flow).
 
 ## Scene 4 — Inside the UDF: a hypothesis, not a guess
 

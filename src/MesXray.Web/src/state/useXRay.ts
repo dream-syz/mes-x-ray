@@ -40,7 +40,11 @@ export interface XRayState {
   busy: Partial<Record<"boot" | "live" | "details" | "trace" | "impact" | "explain", boolean>>;
   error: string | null;
   notice: string | null;
+  /** Deep link `replay=1` / `replay=hold`: replay the flow of every trace as it arrives (or arm it and wait for the button). */
+  replayOnLoad: ReplayOnLoad | null;
 }
+
+export type ReplayOnLoad = "auto" | "hold";
 
 type Action =
   | { type: "booted"; overview: CaseOverview; architecture: Subgraph; responseFields: GraphNode[] }
@@ -55,7 +59,8 @@ type Action =
   | { type: "trace"; trace: FieldTrace | null }
   | { type: "impact"; impact: ImpactResult | null }
   | { type: "explanation"; explanation: ExplainResponse | null; request: ExplainRequest | null; keepTab?: boolean }
-  | { type: "tab"; tab: InspectorTab };
+  | { type: "tab"; tab: InspectorTab }
+  | { type: "replayOnLoad"; mode: ReplayOnLoad | null };
 
 const initial: XRayState = {
   lang: "en",
@@ -75,6 +80,7 @@ const initial: XRayState = {
   busy: { boot: true },
   error: null,
   notice: null,
+  replayOnLoad: null,
 };
 
 function reduce(state: XRayState, action: Action): XRayState {
@@ -105,6 +111,8 @@ function reduce(state: XRayState, action: Action): XRayState {
       return { ...state, explanation: action.explanation, explainRequest: action.request, tab: action.explanation && !action.keepTab ? "explain" : state.tab };
     case "tab":
       return { ...state, tab: action.tab };
+    case "replayOnLoad":
+      return { ...state, replayOnLoad: action.mode };
     default:
       return state;
   }
@@ -124,11 +132,14 @@ export interface Scenario {
   investigate?: boolean;
   impact?: string;
   tab?: InspectorTab;
+  /** `replay=1` plays the flow of the trace once it is on screen; `replay=hold` darkens the path and waits for the button. */
+  replay?: ReplayOnLoad;
 }
 
 /** Deep-link parameters for the demo script (docs/demo-script.md). */
 export function scenarioFromUrl(search: string): Scenario | null {
   const params = new URLSearchParams(search);
+  const replay = params.get("replay");
   const scenario: Scenario = {
     order: params.get("order") ?? undefined,
     field: params.get("field") ?? undefined,
@@ -137,6 +148,7 @@ export function scenarioFromUrl(search: string): Scenario | null {
     investigate: params.get("investigate") === "1",
     impact: params.get("impact") ?? undefined,
     tab: (params.get("tab") as InspectorTab | null) ?? undefined,
+    replay: replay === "1" ? "auto" : replay === "hold" ? "hold" : undefined,
   };
   return scenario.order || scenario.field || scenario.impact ? scenario : null;
 }
@@ -214,7 +226,9 @@ export function useXRay(caseId = "pick-order-details") {
       dispatch({ type: "booted", overview, architecture, responseFields });
     }).then(() => {
       const scenario = scenarioFromUrl(window.location.search);
-      if (scenario) void runScenario(scenario);
+      if (!scenario) return;
+      if (scenario.replay) dispatch({ type: "replayOnLoad", mode: scenario.replay });
+      void runScenario(scenario);
     });
   }, [caseId, run, runScenario]);
 
