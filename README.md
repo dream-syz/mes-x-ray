@@ -155,7 +155,7 @@ Modes (`XRay:Graph:Mode`): `ScanAndCurate` (default), `ScanOnly` (measure the sc
 
 ## Running the demo
 
-Follow [`docs/demo-script.md`](docs/demo-script.md) (design §14); [`docs/demo/talk-track.md`](docs/demo/talk-track.md) is the five-minute talk track with a screenshot of every scene. `scripts/xray.sh demo` prints these deep links on the port actually in use and opens Scene 1:
+Follow [`docs/demo-script.md`](docs/demo-script.md) (design §14); [`docs/demo/talk-track.md`](docs/demo/talk-track.md) is the five-minute talk track with a screenshot of every scene; [`docs/demo/video-kit.md`](docs/demo/video-kit.md) is the recorded-video kit (shot list, VO, titles, checklist) for 1024. `scripts/xray.sh demo` prints these deep links on the port actually in use and opens Scene 1:
 
 | Scene | URL |
 |---|---|

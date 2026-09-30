@@ -1,6 +1,6 @@
 # MES X-Ray 五分钟讲稿（1024 Demo）
 
-对应设计文档 §14 的七个阶段和 [`../demo-script.md`](../demo-script.md) 的操作细节。全程离线运行 `fixtures/pick-order-details`，不连生产、不执行 SQL、不改任何参数或数据。
+对应设计文档 §14 的七个阶段和 [`../demo-script.md`](../demo-script.md) 的操作细节。全程离线运行 `fixtures/pick-order-details`，不连生产、不执行 SQL、不改任何参数或数据。若要**录演示视频**（镜头表、叠字、片头片尾、剪辑清单），用 [`video-kit.md`](video-kit.md)。
 
 - 演示订单 **PICK0843858**，物料 **T12288**（Bracket, left, zinc plated），运行时 trace `trace-demo-001`
 - 开场前执行 `XRAY_LANG=zh scripts/xray.sh demo`：编译、启动、打印所有场景的深链、在浏览器打开场景 1。5173 被占用时脚本会自动换端口并打印实际 URL，下面的链接以打印结果为准
