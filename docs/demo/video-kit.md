@@ -135,7 +135,10 @@ scripts/xray.sh status                       # api / web 都是 healthy
 
 §3–§5 是完整版。这一节是**可上传的 2:00 成片**，只讲一个故事：页面上只是一个 `0` → 扫成证据图 → 叠上真实取值 → AI 说到证据为止。不上影响分析、库位字段、目的车缺口、中英切换。
 
-「流转」由产品自己演：图标题栏的 **▶ 回放流转**（深链 `&replay=1` 自动播、`&replay=hold` 只变暗等待）把一次追踪播成约 10 秒的动画——路径先暗下去，调用沿执行路径逐节点向下、每条边跑一个光点，取值再沿血缘逐层向上，最后落进字段亮出 `T12288: 0`。这是真实 UI 的真实运动，录下来就是镜 3。要交给 MiniMax H3 生成的部分（片头、片尾、转场、首尾帧插值实验）见 [`h3-brief.md`](h3-brief.md)。
+两条制作路线，故事、口播、时间轴相同：
+
+- **路线 A · 录屏**：§6.5 的素材表。「流转」由产品自己演——图标题栏的 **▶ 回放流转**（深链 `&replay=1` 自动播、`&replay=hold` 只变暗等待）把一次追踪播成约 10 秒的动画：路径先暗下去，调用沿执行路径逐节点向下、每条边跑一个光点，取值再沿血缘逐层向上，最后落进字段亮出 `T12288: 0`。
+- **路线 B · 全片交给 MiniMax H3 生成，不录屏**：[`h3-brief.md`](h3-brief.md) 把这 2 分钟切成 12 段（每段 ≤ 15 秒）的提示词，真实截图只当构图 / 配色参考，四张字卡（`cards/*.png`）当首帧，旁白按段切好。拿到另一台电脑上直接生成、按序拼接即可。
 
 观众离开时只需要带走三句话：
 
@@ -192,7 +195,7 @@ scripts/xray.sh status                       # api / web 都是 healthy
 
 后期放大只放大它：字卡的 `0` → 左树 `availableQuantity 0` → 节点上的取值芯片 `T12288 = 0` → 结论里的「观测值 … = 0」→ 状态栏。观众不需要读懂图，只需要一直看见这个 0 被一层层解释。
 
-### 6.5 要录的素材
+### 6.5 要录的素材（路线 A；路线 B 不需要录，见 [`h3-brief.md`](h3-brief.md)）
 
 深链前缀 `http://localhost:<web端口>`，端口以 `scripts/xray.sh demo` 打印的为准。录前 `scripts/xray.sh restart`，确保跑的是当前图。
 
@@ -202,8 +205,8 @@ scripts/xray.sh status                       # api / web 都是 healthy
 | Clip B（约 25 秒） | `/?order=PICK0843858&field=availableQuantity&scope=T12288&replay=1&lang=zh` | 载入 1.5 秒后自动回放（约 10 秒，鼠标移出画面）→ `0` 落定停 2 秒 → 鼠标划过左树三个数 → 停 |
 | Clip C（约 45 秒） | `/?order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1&lang=zh` | 停在结论 → 点一颗证据芯片 → 停 |
 | 静帧 D | 同 Clip C 的 URL，把 `investigate=1` 换成 `explain=1` | 浏览器截一张：对照卡左半（右半用 Clip C 定格） |
-| 静帧 E / F | [`03-live-trace-armed.png`](03-live-trace-armed.png) / [`03-live-trace.png`](03-live-trace.png) | 回放的首帧（路径全暗）和尾帧（全亮带取值）；给 H3 做首尾帧插值实验，见 [`h3-brief.md`](h3-brief.md) |
-| 片头 / 片尾卡 | [`cards/title-card.html`](cards/title-card.html) / [`cards/end-card.html`](cards/end-card.html) | 1920×1080，底 `#0a0d12`，字 `#e7eaf0`，只有那个 `0` 用 `#3fc1e8`，字体同 UI；浏览器打开截图，或作为 H3 的首帧 |
+| 静帧 E / F | [`03-live-trace-armed.png`](03-live-trace-armed.png) / [`03-live-trace.png`](03-live-trace.png) | 回放的首帧（路径全暗）和尾帧（全亮带取值）；路线 B 里是 C4 段的起止状态参考图 |
+| 字卡 ×4 | [`cards/`](cards/)：`title-card` 片头、`compare-card` 对照卡（1:42）、`policy-card` 收束（镜 5）、`end-card` 片尾 | 1920×1080，底 `#0a0d12`，字 `#e7eaf0`，强调色 `#3fc1e8`，「需要更多证据」用 `#f2b545`，字体同 UI；浏览器打开截图直接用，或作为 H3 的首帧 |
 
 录制姿势：Chrome 应用模式 + 干净配置（`--app=<深链> --window-size=1920,1080 --user-data-dir=/tmp/xray-demo-profile`），勿扰模式、隐藏 Dock、100% 缩放。鼠标直线匀速，只在要点的地方出现，点完立刻停手。
 
@@ -289,8 +292,8 @@ Web Visual Picking — Pick Order Details
 | [`../demo-script.md`](../demo-script.md) | 操作细节、深链、故障恢复 |
 | [`video-kit.md`](video-kit.md) | **本文件**：录视频制作单 |
 | `01-architecture.png` … `06b-destination-wagon.png` | 十张场景静帧（1600×1000，中文 UI；含英文调查对照，含回放首帧 `03-live-trace-armed.png`） |
-| [`h3-brief.md`](h3-brief.md) | 交给 MiniMax H3 生成的部分：任务表、提示词、验收标准 |
-| `cards/title-card.html` / `cards/end-card.html` | 片头 / 片尾字卡（1920×1080，配色字体同 UI；浏览器打开即可截图或录制） |
+| [`h3-brief.md`](h3-brief.md) | 2 分钟短版全片交给 MiniMax H3 生成的提示词包：12 段分镜、统一风格块、参考文件角色、按段切好的旁白、验收与拼接 |
+| `cards/*.html` + `cards/*.png` | 四张字卡：片头、对照卡、收束、片尾（1920×1080，配色字体同 UI；浏览器打开即可截图，PNG 直接做 H3 首帧） |
 
 重新出静帧（改 UI / fixture 之后）：
 
