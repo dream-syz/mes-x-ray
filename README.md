@@ -94,7 +94,7 @@ mes-x-ray/
 ├─ docs/
 │  ├─ design/                         the design document (source of requirements)
 │  ├─ adr/                            architecture decision records
-│  ├─ demo/                           talk track (5 min) and a screenshot of every scene
+│  ├─ demo/                           talk track, screenshots of every scene, 1024 video kit (6-min + 2-min cuts) and the MiniMax H3 generation pack (h3/)
 │  ├─ demo-script.md · security.md
 └─ artifacts/                         generated, git-ignored: bin/ obj/ (.NET), web/ (Vite), test-results/, run/ (pids, ports, logs)
 ```

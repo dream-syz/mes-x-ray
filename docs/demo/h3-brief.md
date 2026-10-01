@@ -1,6 +1,6 @@
 # MiniMax H3 生成包（2 分钟短版 · 全片生成 · 不录屏）
 
-配套 [`video-kit.md`](video-kit.md) §6。整条 2:00 由 H3 分 **14 段**生成，再按顺序硬切拼接。所有材料都在 [`h3/`](h3/) 目录，拷到生成用的那台电脑上就能开工：
+配套 [`video-kit.md`](video-kit.md) §6。整条 2:00 由 H3 分 **14 段**生成，再按顺序硬切拼接。所有材料都在 [`h3/`](h3/) 目录；`python3 docs/demo/h3/h3.py pack` 会先校验再把需要带走的东西（含四张字卡和这份说明）打成 `h3/out/h3-pack.zip`，解压后在 `h3/` 里运行即可：
 
 | 文件 | 作用 |
 |---|---|
@@ -8,7 +8,7 @@
 | [`h3/prompts/C00.txt … C13.txt`](h3/prompts/) | 每段一份完整提示词，直接整文件复制粘贴，不需要再拼接任何东西 |
 | [`h3/frames/f01.png … f11.png`](h3/frames/) | 11 张 1920×1080 的首尾帧（下面解释为什么是它们而不是真实截图） |
 | [`cards/*.png`](cards/) | 片头、对照卡、收束卡、片尾四张字卡，作为 C00 / C11 / C12 / C13 的首帧 |
-| [`h3/h3.py`](h3/h3.py) | 可选：按 manifest 批量提交 API、轮询、下载、生成拼接清单；也能导出旁白 SRT |
+| [`h3/h3.py`](h3/h3.py) | 可选：校验整包、打成一个 zip 带走、按 manifest 批量提交 API、轮询、下载、生成拼接清单、导出旁白 SRT |
 | [`h3/narration.srt`](h3/narration.srt) / [`h3/narration.txt`](h3/narration.txt) | 旁白：带时间码的 29 条字幕 / 按段切好的台词 |
 | [`h3/frames.html`](h3/frames.html) + [`h3/render.sh`](h3/render.sh) | 首尾帧的源文件；改文案或布局后重新渲染 |
 
@@ -55,7 +55,7 @@ H3 的硬约束（官方文档 <https://platform.minimaxi.com/docs/guides/video-
 
 ## 3. 旁白的两种做法
 
-- **方案 A（推荐）**：H3 各段只出画面和环境声。旁白用同一个 TTS 声音、按 [`h3/narration.txt`](h3/narration.txt) 一次录完，拼接后按 [`h3/narration.srt`](h3/narration.srt) 的时间码对齐叠上去（SRT 也可以直接烧成字幕）。声音全片一致，字句一定准确。`h3.py submit` 默认就是这个方案：提交前会把提示词里的「画外旁白」段删掉。
+- **方案 A（推荐）**：H3 各段只出画面和环境声。旁白用同一个 TTS 声音、按 [`h3/narration.txt`](h3/narration.txt) 一次录完，拼接后按 [`h3/narration.srt`](h3/narration.srt) 的时间码对齐叠上去（SRT 也可以直接烧成字幕）。声音全片一致，字句一定准确。`h3.py submit` 默认就是这个方案：提交前把提示词里的「画外旁白」那行换成「无对白、无旁白、无字幕。」——明说，比留一个空让模型自己填要稳。网页版手工粘贴时照样替换这一行。
 - **方案 B**：让 H3 直接念（`h3.py submit --voice`，或在网页里粘贴完整提示词）。每段提示词里都写了「中性、沉稳、语速稍快的中文女声，无画面内说话者，不生成字幕」。风险：音色段间漂移、个别字念错、模型自作主张加字幕——首尾帧模式不能传音色参考，这个漂移没有办法用参考音频压住。
 
 ---
@@ -71,7 +71,7 @@ H3 的硬约束（官方文档 <https://platform.minimaxi.com/docs/guides/video-
 ```bash
 export MINIMAX_API_KEY=…            # 只放在生成用的电脑上，不进仓库
 cd docs/demo/h3
-python3 h3.py plan                  # 看时间轴
+python3 h3.py plan                  # 校验整包（帧存在、16:9、首尾同尺寸、提示词 ≤ 7000 字符、时长 4–15）并打印时间轴
 python3 h3.py submit --dry-run      # 看每段会发什么（图片以 base64 内联，单请求 100–300 KB）
 python3 h3.py submit --only C00,C11,C12,C13     # 先出四张字卡段
 python3 h3.py poll --download       # 轮询并下载到 out/Cxx.mp4
@@ -103,7 +103,7 @@ python3 h3.py concat                # 写 out/concat.txt 并打印 ffmpeg 命令
 | 色彩 | 青色不发紫、不发绿；琥珀色只在「需要更多证据」「假设」「未验证」 |
 | 规格 | 时长与 manifest 一致；24 fps；16:9 |
 
-**重生成**：同一段最多 3 次。换提示词只改时间线那几行，不改风格块；帧不对就改 `frames.html` 重新渲染（`XRAY_PW_CHANNEL=chrome docs/demo/h3/render.sh f06 f07`），改完的帧会同时改掉相邻两段的首尾，要一起重出。
+**重生成**：同一段最多 3 次。换提示词只改时间线那几行，不改风格块；帧不对就改 `frames.html` 重新渲染（`docs/demo/h3/render.sh f06 f07`，在这台 Mac 上渲染，字体才一致），改完的帧会同时改掉相邻两段的首尾，要一起重出。
 
 **留档**：`out/tasks.json` 记录每段的 task_id、分辨率、是否带旁白、状态和成片地址。
 

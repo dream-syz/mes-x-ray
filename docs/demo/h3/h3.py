@@ -9,6 +9,10 @@
     python3 h3.py submit --voice             # keep the「画外旁白」paragraph so H3 narrates (plan B); default strips it (plan A)
     python3 h3.py poll --download            # poll tasks in out/tasks.json and download finished clips to out/
     python3 h3.py concat                     # write out/concat.txt and print the ffmpeg command
+    python3 h3.py pack                       # zip everything the generation machine needs into out/h3-pack.zip
+
+`plan` and `submit` first validate the pack: frames exist, are 16:9 and pairwise identical in size, prompts are
+within the 7000-character limit, durations are 4–15 s integers.
 
 Environment:  MINIMAX_API_KEY (required for submit/poll),  MINIMAX_API_BASE (default https://api.minimax.cn).
 API shape follows https://platform.minimaxi.com/docs/api-reference/video-generation-v2-create.md (checked 2026-10-01).
@@ -20,10 +24,12 @@ import base64
 import json
 import os
 import re
+import struct
 import sys
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -31,6 +37,49 @@ OUT = HERE / "out"
 MANIFEST = HERE / "manifest.json"
 NARRATION_RE = re.compile(r"^画外旁白[^：]*：\s*(.*?)\s*$", re.M)
 QUOTE_RE = re.compile(r"「(.*)」\s*$", re.S)
+PROMPT_LIMIT = 7000
+SILENT_LINE = "无对白、无旁白、无字幕。"
+
+
+def png_size(path: Path) -> tuple[int, int] | None:
+    with path.open("rb") as f:
+        head = f.read(24)
+    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+        return None
+    w, h = struct.unpack(">II", head[16:24])
+    return w, h
+
+
+def check(data: dict) -> list[str]:
+    problems: list[str] = []
+    for c in data["clips"]:
+        cid = c["id"]
+        if not (4 <= int(c["duration"]) <= 15):
+            problems.append(f"{cid}: duration {c['duration']} is outside 4–15 s")
+        prompt = HERE / c["prompt"]
+        if not prompt.exists():
+            problems.append(f"{cid}: missing prompt {c['prompt']}")
+        elif len(prompt.read_text(encoding="utf-8")) > PROMPT_LIMIT:
+            problems.append(f"{cid}: prompt longer than {PROMPT_LIMIT} characters")
+        sizes = []
+        for key in ("first_frame", "last_frame"):
+            rel = c.get(key)
+            if not rel:
+                continue
+            path = HERE / rel
+            if not path.exists():
+                problems.append(f"{cid}: missing {key} {rel}")
+                continue
+            size = png_size(path)
+            if size is None:
+                problems.append(f"{cid}: {rel} is not a PNG")
+                continue
+            sizes.append(size)
+            if abs(size[0] / size[1] - 16 / 9) > 0.01:
+                problems.append(f"{cid}: {rel} is {size[0]}×{size[1]}, not 16:9")
+        if len(sizes) == 2 and sizes[0] != sizes[1]:
+            problems.append(f"{cid}: first and last frame differ in size {sizes[0]} vs {sizes[1]}")
+    return problems
 
 
 def load_manifest() -> dict:
@@ -45,9 +94,10 @@ def load_manifest() -> dict:
 
 def prompt_text(clip: dict, voice: bool) -> str:
     text = (HERE / clip["prompt"]).read_text(encoding="utf-8").strip()
-    if not voice:
-        # Plan A: the picture is generated silent-ish; narration is one TTS take laid over the concatenation.
-        text = NARRATION_RE.sub("", text)
+    if not voice and NARRATION_RE.search(text):
+        # Plan A: the picture is generated without speech; narration is one TTS take laid over the concatenation.
+        # Say so explicitly instead of leaving a hole the model might fill with a voice of its own.
+        text = NARRATION_RE.sub(SILENT_LINE, text, count=1)
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
     return text
 
@@ -76,7 +126,16 @@ def split_sentences(text: str) -> list[str]:
     return out or [text]
 
 
+def report_problems(data: dict, fatal: bool) -> None:
+    problems = check(data)
+    for p in problems:
+        print("WARNING " + p, file=sys.stderr)
+    if problems and fatal:
+        sys.exit(f"{len(problems)} problem(s) — fix the pack before submitting")
+
+
 def cmd_plan(data: dict) -> None:
+    report_problems(data, fatal=False)
     print(f"{'clip':5} {'start':>6} {'dur':>4} {'mode':12} {'first → last frame':40} narration")
     for c in data["clips"]:
         mode = "first+last" if c["last_frame"] else "first_frame"
@@ -141,6 +200,7 @@ def api(method: str, path: str, body: dict | None = None) -> dict:
 
 
 def cmd_submit(data: dict, only: set[str] | None, resolution: str, voice: bool, dry_run: bool) -> None:
+    report_problems(data, fatal=True)
     OUT.mkdir(exist_ok=True)
     tasks_path = OUT / "tasks.json"
     tasks = json.loads(tasks_path.read_text(encoding="utf-8")) if tasks_path.exists() else {}
@@ -209,11 +269,33 @@ def cmd_concat(data: dict) -> None:
     print("# plan A narration:  ffmpeg -i out/" + data["output"] + " -i narration.wav -map 0:v -map 1:a -c:v copy -shortest out/final.mp4")
 
 
+def cmd_pack(data: dict) -> None:
+    """Everything the generation machine needs, with the relative layout preserved (unzip, then run from h3/)."""
+    report_problems(data, fatal=True)
+    OUT.mkdir(exist_ok=True)
+    demo = HERE.parent
+    files: set[Path] = {HERE / "manifest.json", HERE / "h3.py", demo / "h3-brief.md"}
+    for name in ("narration.srt", "narration.txt"):
+        if (HERE / name).exists():
+            files.add(HERE / name)
+    for c in data["clips"]:
+        files.add(HERE / c["prompt"])
+        for key in ("first_frame", "last_frame"):
+            if c.get(key):
+                files.add((HERE / c[key]).resolve())
+    target = OUT / "h3-pack.zip"
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(files):
+            z.write(f, f.relative_to(demo))
+    print(f"{target.relative_to(HERE)}: {len(files)} files, {target.stat().st_size // 1024} KB")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("plan")
     sub.add_parser("srt")
+    sub.add_parser("pack")
     s = sub.add_parser("submit")
     s.add_argument("--only", help="comma-separated clip ids, e.g. C00,C11")
     s.add_argument("--resolution", default="768P", choices=["768P", "2K"])
@@ -237,6 +319,8 @@ def main() -> None:
         cmd_poll(args.download, args.interval)
     elif args.cmd == "concat":
         cmd_concat(data)
+    elif args.cmd == "pack":
+        cmd_pack(data)
 
 
 if __name__ == "__main__":
