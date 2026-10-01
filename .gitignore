@@ -25,3 +25,6 @@ npm-debug.log*
 appsettings.*.local.json
 *.pfx
 *.key
+
+# MiniMax H3 generation output (videos, task ids) — see docs/demo/h3-brief.md
+docs/demo/h3/out/

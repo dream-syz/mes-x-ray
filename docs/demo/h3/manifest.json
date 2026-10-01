@@ -1,0 +1,21 @@
+{
+  "model": "MiniMax-H3",
+  "fps": 24,
+  "output": "mes-x-ray-demo-zh-2m.mp4",
+  "clips": [
+    { "id": "C00", "title": "片头字卡", "duration": 4, "first_frame": "../cards/title-card.png", "last_frame": null, "prompt": "prompts/C00.txt" },
+    { "id": "C01", "title": "全图显影", "duration": 15, "first_frame": "frames/f01.png", "last_frame": "frames/f02.png", "prompt": "prompts/C01.txt" },
+    { "id": "C02", "title": "点击溯源", "duration": 11, "first_frame": "frames/f02.png", "last_frame": "frames/f03.png", "prompt": "prompts/C02.txt" },
+    { "id": "C03", "title": "展开函数内部", "duration": 11, "first_frame": "frames/f03.png", "last_frame": "frames/f04.png", "prompt": "prompts/C03.txt" },
+    { "id": "C04", "title": "叠上真实调用：路径变暗", "duration": 4, "first_frame": "frames/f04.png", "last_frame": "frames/f05.png", "prompt": "prompts/C04.txt" },
+    { "id": "C05", "title": "调用向下", "duration": 5, "first_frame": "frames/f05.png", "last_frame": "frames/f06.png", "prompt": "prompts/C05.txt" },
+    { "id": "C06", "title": "取值向上，0 落定", "duration": 9, "first_frame": "frames/f06.png", "last_frame": "frames/f07.png", "prompt": "prompts/C06.txt" },
+    { "id": "C07", "title": "两个 0，两条路", "duration": 10, "first_frame": "frames/f07.png", "last_frame": "frames/f08.png", "prompt": "prompts/C07.txt" },
+    { "id": "C08", "title": "调查结论", "duration": 10, "first_frame": "frames/f08.png", "last_frame": "frames/f09.png", "prompt": "prompts/C08.txt" },
+    { "id": "C09", "title": "关键事实", "duration": 12, "first_frame": "frames/f09.png", "last_frame": "frames/f10.png", "prompt": "prompts/C09.txt" },
+    { "id": "C10", "title": "假设与下一步", "duration": 10, "first_frame": "frames/f10.png", "last_frame": "frames/f11.png", "prompt": "prompts/C10.txt" },
+    { "id": "C11", "title": "对照卡", "duration": 9, "first_frame": "../cards/compare-card.png", "last_frame": null, "prompt": "prompts/C11.txt" },
+    { "id": "C12", "title": "收束卡", "duration": 5, "first_frame": "../cards/policy-card.png", "last_frame": null, "prompt": "prompts/C12.txt" },
+    { "id": "C13", "title": "片尾字卡", "duration": 5, "first_frame": "../cards/end-card.png", "last_frame": null, "prompt": "prompts/C13.txt" }
+  ]
+}

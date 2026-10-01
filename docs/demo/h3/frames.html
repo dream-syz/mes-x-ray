@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>MES X-Ray — H3 storyboard frames</title>
+<!--
+  Storyboard frames for the MiniMax H3 first/last-frame clips (see ../h3-brief.md).
+  One page, many states: open frames.html?state=f03 (f01 … f11). Every frame is a stylised, simplified
+  version of the real UI (same palette, same layout, a 28-node schematic instead of the 210-node graph) so the
+  model only has to animate between two exact pictures. All "unimportant" text is drawn as grey bars on purpose:
+  the model must not be given small text it could misspell.
+  Render all frames with ./render.sh (Playwright, 1920×1080).
+-->
+<style>
+  :root {
+    --bg: #0a0d12;
+    --surface: #0f131a;
+    --surface-2: #131923;
+    --line: rgba(255, 255, 255, 0.1);
+    --line-strong: rgba(255, 255, 255, 0.22);
+    --ink: #e7eaf0;
+    --ink-2: #b9c1ce;
+    --ink-3: #6f7a8a;
+    --accent: #3fc1e8;
+    --accent-dim: #14262f;
+    --warn: #f2b545;
+    --sans: "Geist Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --top: 52px;
+    --status: 36px;
+    --rail: 300px;
+    --panel: 520px;
+  }
+  html, body { margin: 0; background: var(--bg); }
+  body {
+    width: 1920px; height: 1080px; overflow: hidden; position: relative;
+    color: var(--ink); font-family: var(--sans); font-size: 15px;
+  }
+  .ph { display: inline-block; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.16); vertical-align: middle; }
+  .ph.dim { background: rgba(255, 255, 255, 0.09); }
+
+  /* chrome */
+  .topbar {
+    position: absolute; left: 0; right: 0; top: 0; height: var(--top);
+    display: flex; align-items: center; gap: 28px; padding: 0 20px; box-sizing: border-box;
+    background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; letter-spacing: 0.01em; }
+  .brand .mark { width: 18px; height: 18px; border: 2px solid var(--accent); border-radius: 4px; box-shadow: 0 0 12px rgba(63, 193, 232, 0.45); }
+  .seg { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; margin-left: auto; margin-right: auto; }
+  .seg span { display: block; width: 92px; height: 26px; border-radius: 5px; }
+  .seg span.on { background: var(--surface-2); }
+  .topbar .right { display: flex; gap: 10px; }
+  .topbar .right span { display: block; width: 88px; height: 26px; border: 1px solid var(--line); border-radius: 6px; }
+
+  .rail {
+    position: absolute; left: 0; top: var(--top); bottom: var(--status); width: var(--rail);
+    background: var(--surface); border-right: 1px solid var(--line); padding: 18px 16px; box-sizing: border-box;
+  }
+  .rail h4 { margin: 0 0 14px; font: 600 12px var(--mono); color: var(--ink-3); letter-spacing: 0.08em; text-transform: uppercase; }
+  .tree { display: flex; flex-direction: column; gap: 6px; }
+  .row { display: flex; align-items: center; height: 34px; padding: 0 10px; border-radius: 7px; border-left: 2px solid transparent; }
+  .row.indent { margin-left: 18px; }
+  .row.indent2 { margin-left: 36px; }
+  .row .k { flex: 1; font-size: 15px; color: var(--ink-2); }
+  .row .v { font: 600 15px var(--mono); color: var(--ink); }
+  .row.hi { background: var(--accent-dim); border-left-color: var(--accent); }
+  .row.hi .k { color: var(--ink); }
+  .row.hi .v { color: var(--accent); }
+  .row.hi2 { background: rgba(255, 255, 255, 0.05); border-left-color: var(--line-strong); }
+
+  .canvas {
+    position: absolute; left: var(--rail); top: var(--top); bottom: var(--status); width: 1100px; overflow: hidden;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1px);
+    background-size: 24px 24px; background-position: 12px 12px;
+  }
+  .viewport { position: absolute; left: 0; top: 0; width: 1100px; height: 992px; transform-origin: 0 0; }
+  .viewport svg { position: absolute; left: 0; top: 0; overflow: visible; }
+
+  .node {
+    position: absolute; width: 176px; height: 56px; box-sizing: border-box;
+    padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface);
+    display: flex; flex-direction: column; justify-content: center; gap: 4px;
+  }
+  .node .t { font: 500 12px var(--mono); color: var(--ink-3); letter-spacing: 0.04em; line-height: 1; }
+  .node .n { font-weight: 600; font-size: 17px; line-height: 1.1; color: var(--ink); display: flex; align-items: center; height: 18px; }
+  .node .n .ph { height: 9px; }
+  .node.lit { border-color: var(--accent); background: var(--accent-dim); box-shadow: 0 0 0 1px rgba(63, 193, 232, 0.15); }
+  .node.lit .t { color: var(--accent); }
+  .node.dim { opacity: 0.3; }
+  .node.dark { opacity: 0.35; border-color: var(--line-strong); background: var(--surface-2); }
+  .node.dark .t { color: var(--ink-3); }
+  .node.current { border-color: var(--accent); background: #173543; box-shadow: 0 0 0 2px rgba(63, 193, 232, 0.35), 0 0 22px rgba(63, 193, 232, 0.45); }
+  .node.selected { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .node.arrived::after, .node.arrived::before {
+    content: ""; position: absolute; inset: -8px; border-radius: 14px; border: 1.5px solid rgba(63, 193, 232, 0.55); pointer-events: none;
+  }
+  .node.arrived::before { inset: -18px; border-radius: 22px; border-color: rgba(63, 193, 232, 0.25); }
+  .chip {
+    position: absolute; left: 50%; transform: translateX(-50%); top: 100%; margin-top: 7px;
+    padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(63, 193, 232, 0.6); background: #0b1b22;
+    font: 600 13px var(--mono); color: var(--accent); white-space: nowrap; box-shadow: 0 0 10px rgba(63, 193, 232, 0.25);
+  }
+  .fold {
+    position: absolute; left: 50%; transform: translateX(-50%); top: 100%; margin-top: 7px;
+    padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(63, 193, 232, 0.6); background: #0b1b22;
+    font: 600 13px var(--sans); color: var(--accent); white-space: nowrap;
+  }
+  .fold.ring::after { content: ""; position: absolute; inset: -9px; border-radius: 999px; border: 1.5px solid rgba(63, 193, 232, 0.5); }
+  .caption {
+    position: absolute; left: 36px; top: 112px; font-size: 30px; font-weight: 700; letter-spacing: 0.01em; line-height: 1.2;
+    color: var(--ink); text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8);
+  }
+
+  .panel {
+    position: absolute; right: 0; top: var(--top); bottom: var(--status); width: var(--panel);
+    background: var(--surface); border-left: 1px solid var(--line); padding: 20px 24px; box-sizing: border-box;
+  }
+  .panel h4 { margin: 0 0 16px; font: 600 12px var(--mono); color: var(--ink-3); letter-spacing: 0.08em; text-transform: uppercase; }
+  .lines { display: flex; flex-direction: column; gap: 14px; }
+  .pills { display: flex; flex-direction: column; gap: 10px; }
+  .pill { display: flex; align-items: center; gap: 10px; }
+  .pill .arrow { width: 14px; color: var(--ink-3); font: 500 12px var(--mono); }
+  .pill .box { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface-2); }
+  .pill.lit .box { border-color: var(--accent); background: var(--accent-dim); }
+  .pill .box .ph { background: rgba(255, 255, 255, 0.22); }
+  .pill.lit .box .ph { background: rgba(63, 193, 232, 0.6); }
+  .statgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 26px; }
+  .statgrid div { height: 64px; border: 1px solid var(--line); border-radius: 10px; padding: 12px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; }
+
+  .verdict { font-size: 32px; font-weight: 700; color: var(--warn); text-shadow: 0 0 24px rgba(242, 181, 69, 0.3); line-height: 1.2; }
+  .stats { margin-top: 10px; font: 500 18px var(--mono); color: var(--ink-2); }
+  .stats b { color: var(--ink); font-weight: 600; }
+  .facts { margin-top: 26px; display: flex; flex-direction: column; gap: 14px; }
+  .fact { display: flex; align-items: center; gap: 10px; min-height: 30px; }
+  .fact .txt { flex: 1; font-size: 20px; line-height: 1.3; color: var(--ink); }
+  .fact .txt b { font-weight: 600; }
+  .fact .txt .ph { height: 9px; }
+  .evc { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line-strong); font: 600 12px var(--mono); color: var(--ink-2); background: var(--surface-2); position: relative; }
+  .evc.sel { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+  .evc.sel.ring::after { content: ""; position: absolute; inset: -8px; border-radius: 999px; border: 1.5px solid rgba(63, 193, 232, 0.5); }
+  .sub { margin-top: 10px; font-size: 17px; color: var(--ink-2); }
+  .block { margin-top: 22px; padding: 14px 16px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line); border-left: 3px solid var(--line-strong); }
+  .block.warn { border-left-color: var(--warn); }
+  .block .head { display: flex; align-items: center; gap: 10px; font: 600 13px var(--mono); color: var(--ink-3); letter-spacing: 0.08em; text-transform: uppercase; }
+  .block .head .lbl { font-family: var(--sans); font-size: 16px; color: var(--ink-2); letter-spacing: 0; text-transform: none; }
+  .block .head .tag { margin-left: auto; padding: 2px 10px; border-radius: 999px; border: 1px solid rgba(242, 181, 69, 0.6); color: var(--warn); font: 600 12px var(--sans); letter-spacing: 0; }
+  .block .body { margin-top: 10px; font-size: 20px; line-height: 1.35; color: var(--ink); display: flex; align-items: center; gap: 10px; }
+  .lock { width: 16px; height: 16px; border: 2px solid var(--accent); border-radius: 3px; position: relative; flex: none; }
+  .lock::before { content: ""; position: absolute; left: 2px; right: 2px; top: -9px; height: 9px; border: 2px solid var(--accent); border-bottom: 0; border-radius: 6px 6px 0 0; }
+
+  .statusbar {
+    position: absolute; left: 0; right: 0; bottom: 0; height: var(--status);
+    display: flex; align-items: center; gap: 22px; padding: 0 20px; box-sizing: border-box;
+    background: var(--surface); border-top: 1px solid var(--line); font: 500 14px var(--mono); color: var(--ink-2);
+  }
+  .statusbar b { color: var(--ink); font-weight: 600; }
+  .statusbar .tag { margin-left: auto; padding: 2px 10px; border-radius: 999px; border: 1px solid rgba(63, 193, 232, 0.5); color: var(--accent); font: 600 12px var(--sans); }
+
+  body.ghost .viewport { opacity: 0.12; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="mark"></span>MES X-Ray</div>
+    <div class="seg"><span class="on"></span><span></span><span></span><span></span></div>
+    <div class="right"><span></span><span></span></div>
+  </div>
+
+  <div class="rail">
+    <h4><i class="ph dim" style="width:84px"></i></h4>
+    <div class="tree" id="tree"></div>
+  </div>
+
+  <div class="canvas">
+    <div class="viewport" id="viewport">
+      <svg id="edges" width="1100" height="992" viewBox="0 0 1100 992">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="rgba(255,255,255,0.28)"></path>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#3fc1e8"></path>
+          </marker>
+          <marker id="arrow-dark" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="rgba(255,255,255,0.2)"></path>
+          </marker>
+        </defs>
+        <g id="edge-layer"></g>
+      </svg>
+      <div id="node-layer"></div>
+    </div>
+    <div class="caption" id="caption" hidden></div>
+  </div>
+
+  <div class="panel" id="panel"></div>
+
+  <div class="statusbar" id="statusbar"></div>
+
+<script>
+(function () {
+  const COL = [38, 250, 462, 674, 886];
+  const ROW = (r) => 40 + r * 96;
+  const W = 176, H = 56;
+
+  // id: [col, row, type, name | null (placeholder), placeholderWidth]
+  const NODES = {
+    P0: [4, 0, "页面", null, 110], E1: [4, 1, "API", null, 128], E2: [4, 2, "服务", null, 96], E3: [4, 3, "服务", null, 118], E4: [4, 4, "服务", null, 104],
+    S5d: [4, 5, "存储过程", null, 120], T9d: [4, 9, "表", null, 92],
+    S5c: [3, 5, "存储过程", null, 132], FN: [3, 6, "函数", null, 136],
+    RET: [3, 7, "语句", "RETURN", 0], CTE: [3, 8, "子查询", "CTE", 0], INV: [3, 9, "表", "INVENTORY2", 0],
+    C0: [3, 0, "字段", null, 104], C1: [3, 1, "属性", null, 104], C2: [3, 2, "结果列", null, 104],
+    B0: [2, 0, "字段", null, 96], B1: [2, 1, "属性", null, 96], B2: [2, 2, "结果列", null, 96], T9b: [2, 9, "表", null, 100],
+    A0: [1, 0, "字段", "availableQuantity", 0], A1: [1, 1, "属性", null, 112], A2: [1, 2, "结果列", null, 112], A3: [1, 3, "求和", null, 70],
+    A4: [1, 4, "表达式", "CASE", 0], T9a: [1, 9, "表", null, 108],
+    W4: [0, 4, "参数", "WMS_Enabled", 0], S5a: [0, 6, "存储过程", null, 116], T9c: [0, 9, "表", null, 84],
+  };
+  // [source (lower / upstream), target (upper / consumer)] — arrows point at the consumer, i.e. in the data-flow direction
+  const EDGES = [
+    ["E1", "P0"], ["E2", "E1"], ["E3", "E2"], ["E4", "E3"], ["S5d", "E4"], ["S5c", "S5d"], ["FN", "S5c"], ["T9d", "S5d"],
+    ["A1", "A0"], ["A2", "A1"], ["A3", "A2"], ["A4", "A3"], ["W4", "A4"], ["FN", "A4"], ["T9a", "A4"],
+    ["B1", "B0"], ["B2", "B1"], ["T9b", "B2"],
+    ["C1", "C0"], ["C2", "C1"], ["S5c", "C2"],
+    ["T9c", "S5a"],
+    ["RET", "FN"], ["CTE", "RET"], ["INV", "CTE"],
+  ];
+  const UNFOLDED = new Set(["RET", "CTE", "INV"]);
+  const EXEC = ["P0", "E1", "E2", "E3", "E4", "S5d", "S5c", "FN"];
+  const LINEAGE = ["A0", "A1", "A2", "A3", "A4", "W4", "T9a"];
+  const TRACE = new Set([...EXEC, ...LINEAGE]);
+  const TRACE_UNFOLDED = new Set([...TRACE, ...UNFOLDED]);
+  const COLB = ["B0", "B1", "B2", "T9b"];
+
+  const edgeKey = (s, t) => `${s}>${t}`;
+  const inSet = (set, s, t) => set.has(s) && set.has(t);
+
+  const RAIL_VALUES = [["拣货数量", "18"], ["在手数量", "0"], ["已分配数量", "18"], ["可用数量", "0"]];
+
+  const STATES = {
+    // C1: ghost → graph
+    f01: { ghost: true, counter: false, panel: "arch" },
+    f02: { panel: "arch" },
+    // C2 end: trace lit, fold chip on the function
+    f03: { trace: true, fold: true, panel: "trace" },
+    // C3 end: unfolded + zoomed on the function cluster
+    f04: { trace: true, unfolded: true, zoom: { scale: 1.6, x: 419, y: 362 }, panel: "trace" },
+    // C4a end: armed (everything on the path dark)
+    f05: { trace: true, unfolded: true, dark: true, panel: "trace" },
+    // C4b end: the call has gone down the execution path
+    f06: { trace: true, unfolded: true, dark: true, call: true, panel: "trace" },
+    // C4c end: values are back; the field has arrived
+    f07: { trace: true, unfolded: true, values: true, panel: "trace" },
+    // C5 end: two zeros, two paths
+    f08: { trace: true, unfolded: true, values: true, twopaths: true, caption: "两个 0，两条路", panel: "trace" },
+    // C6 end: verdict; evidence chip selected; the function is selected on the graph
+    f09: { trace: true, unfolded: true, values: true, selected: "FN", panel: "investigate", inv: 1 },
+    // C7 end: three facts readable
+    f10: { trace: true, unfolded: true, values: true, selected: "FN", panel: "investigate", inv: 2 },
+    // C8 end: hypothesis + next step
+    f11: { trace: true, unfolded: true, values: true, selected: "FN", panel: "investigate", inv: 3 },
+  };
+
+  const params = new URLSearchParams(location.search);
+  const stateName = params.get("state") || "f02";
+  const S = STATES[stateName] || STATES.f02;
+  document.title = `MES X-Ray — frame ${stateName}`;
+  if (S.ghost) document.body.classList.add("ghost");
+
+  // While the function is folded the table row sits directly under it (row 7); unfolding pushes it down to row 9,
+  // exactly like the real layout re-ranks when 12 hidden nodes appear.
+  const rowOf = (id) => { const r = NODES[id][1]; return r === 9 && !S.unfolded ? 7 : r; };
+
+  // ----- nodes
+  const nodeLayer = document.getElementById("node-layer");
+  const visible = (id) => !UNFOLDED.has(id) || S.unfolded;
+  const nodeClass = (id) => {
+    if (!S.trace) return "";
+    const onTrace = (S.unfolded ? TRACE_UNFOLDED : TRACE).has(id);
+    if (S.twopaths && COLB.includes(id)) return "lit";
+    if (!onTrace) return "dim";
+    if (S.dark) {
+      if (S.call && EXEC.includes(id)) return id === "FN" ? "lit current" : "lit";
+      return "dark";
+    }
+    let cls = "lit";
+    if (S.values && id === "A0") cls += " arrived";
+    if (S.selected === id) cls += " selected";
+    return cls;
+  };
+  const CHIPS = { A0: "T12288: 0", A3: "0", FN: "0", W4: "1" };
+  for (const [id, [c, r, type, name, phw]] of Object.entries(NODES)) {
+    if (!visible(id)) continue;
+    const el = document.createElement("div");
+    el.className = `node ${nodeClass(id)}`;
+    el.style.left = `${COL[c]}px`;
+    el.style.top = `${ROW(rowOf(id))}px`;
+    const shownName = name || (S.twopaths && id === "B0" ? "onHandQuantity" : null);
+    el.innerHTML = `<div class="t">${type}</div><div class="n">${shownName ? shownName : `<i class="ph" style="width:${phw}px"></i>`}</div>`;
+    if (S.values && CHIPS[id]) {
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      chip.textContent = CHIPS[id];
+      el.appendChild(chip);
+    }
+    if (S.twopaths && id === "B0") {
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      chip.textContent = "0";
+      el.appendChild(chip);
+    }
+    if (S.fold && id === "FN") {
+      const chip = document.createElement("div");
+      chip.className = "fold";
+      chip.textContent = "内部 +12";
+      el.appendChild(chip);
+    }
+    nodeLayer.appendChild(el);
+  }
+
+  // ----- edges
+  const center = (id) => { const c = NODES[id][0], r = rowOf(id); return { x: COL[c] + W / 2, y: ROW(r) + H / 2, c, r }; };
+  const anchors = (s, t) => {
+    const a = center(s), b = center(t);
+    if (a.c === b.c) return [a.x, ROW(a.r), b.x, ROW(b.r) + H];              // vertical: top of source → bottom of target
+    if (a.r === b.r) {                                                       // horizontal
+      const dir = b.x > a.x ? 1 : -1;
+      return [a.x + dir * W / 2, a.y, b.x - dir * W / 2, b.y];
+    }
+    return [a.x, ROW(a.r), b.x, ROW(b.r) + H];                               // diagonal: top-centre → bottom-centre
+  };
+  const edgeLayer = document.getElementById("edge-layer");
+  const edgeClass = (s, t) => {
+    if (!S.trace) return "default";
+    const set = S.unfolded ? TRACE_UNFOLDED : TRACE;
+    if (S.twopaths && COLB.includes(s) && COLB.includes(t)) return "solid";
+    if (!inSet(set, s, t)) return "dimmed";
+    if (S.dark) {
+      if (S.call && EXEC.includes(s) && EXEC.includes(t)) return "lit";
+      return "dark";
+    }
+    return "lit";
+  };
+  const STROKE = {
+    default: { stroke: "rgba(255,255,255,0.22)", width: 1.4, dash: "", marker: "arrow", opacity: 1 },
+    dimmed: { stroke: "rgba(255,255,255,0.22)", width: 1.4, dash: "", marker: "arrow", opacity: 0.3 },
+    dark: { stroke: "rgba(255,255,255,0.28)", width: 1.4, dash: "", marker: "arrow-dark", opacity: 0.6 },
+    lit: { stroke: "#3fc1e8", width: 2, dash: "7 5", marker: "arrow-lit", opacity: 1 },
+    solid: { stroke: "#3fc1e8", width: 2.6, dash: "", marker: "arrow-lit", opacity: 1 },
+  };
+  for (const [s, t] of EDGES) {
+    if (!visible(s) || !visible(t)) continue;
+    const [x1, y1, x2, y2] = anchors(s, t);
+    const st = STROKE[edgeClass(s, t)];
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", x1); line.setAttribute("y1", y1); line.setAttribute("x2", x2); line.setAttribute("y2", y2);
+    line.setAttribute("stroke", st.stroke); line.setAttribute("stroke-width", st.width);
+    if (st.dash) line.setAttribute("stroke-dasharray", st.dash);
+    line.setAttribute("marker-end", `url(#${st.marker})`); line.setAttribute("opacity", st.opacity);
+    if (st.stroke === "#3fc1e8") line.setAttribute("filter", "drop-shadow(0 0 4px rgba(63,193,232,0.6))");
+    edgeLayer.appendChild(line);
+  }
+
+  // ----- zoom / centring (the folded graph is 8 rows tall, so centre it vertically like fitView would)
+  if (S.zoom) {
+    const { scale, x, y } = S.zoom;
+    document.getElementById("viewport").style.transform = `translate(${-x * scale}px, ${-y * scale}px) scale(${scale})`;
+  } else if (!S.unfolded) {
+    document.getElementById("viewport").style.transform = "translate(0, 72px)";
+  }
+
+  // ----- caption
+  if (S.caption) { const c = document.getElementById("caption"); c.hidden = false; c.textContent = S.caption; }
+
+  // ----- rail
+  const tree = document.getElementById("tree");
+  const railRows = [
+    { ph: 120 }, { ph: 150, indent: 1 }, { ph: 96, indent: 1 }, { ph: 180, indent: 1 },
+    { kv: RAIL_VALUES[0], indent: 2 }, { kv: RAIL_VALUES[1], indent: 2, hi2: S.twopaths }, { kv: RAIL_VALUES[2], indent: 2 }, { kv: RAIL_VALUES[3], indent: 2, hi: true },
+    { ph: 130, indent: 2 }, { ph: 110, indent: 2 }, { ph: 160, indent: 1 }, { ph: 140, indent: 1 }, { ph: 100 },
+  ];
+  for (const r of railRows) {
+    const el = document.createElement("div");
+    el.className = `row ${r.indent === 1 ? "indent" : r.indent === 2 ? "indent2" : ""} ${r.hi ? "hi" : ""} ${r.hi2 ? "hi2" : ""}`;
+    el.innerHTML = r.kv ? `<span class="k">${r.kv[0]}</span><span class="v">${r.kv[1]}</span>` : `<i class="ph dim" style="width:${r.ph}px"></i>`;
+    tree.appendChild(el);
+  }
+
+  // ----- panel
+  const panel = document.getElementById("panel");
+  const phLine = (w, dim = true) => `<div><i class="ph ${dim ? "dim" : ""}" style="width:${w}px"></i></div>`;
+  if (S.panel === "arch") {
+    panel.innerHTML = `<h4><i class="ph dim" style="width:72px"></i></h4><div class="lines">${[300, 220, 260, 180, 240].map((w) => phLine(w)).join("")}</div>
+      <div class="statgrid">${[0, 1, 2, 3].map(() => `<div><i class="ph dim" style="width:70px"></i><i class="ph" style="width:46px;height:12px"></i></div>`).join("")}</div>`;
+  } else if (S.panel === "trace") {
+    const widths = [150, 130, 112, 140, 128, 128, 160, 170];
+    const litAll = !(S.dark && !S.call);
+    panel.innerHTML = `<h4><i class="ph dim" style="width:104px"></i></h4><div class="pills">${widths.map((w, i) => `<div class="pill ${litAll || (S.call && i <= 7) ? "lit" : ""}"><span class="arrow">${i ? "↓" : ""}</span><span class="box"><i class="ph" style="width:${w}px"></i></span></div>`).join("")}</div>
+      <div class="lines" style="margin-top:26px">${[280, 230, 200].map((w) => phLine(w)).join("")}</div>`;
+  } else if (S.panel === "investigate") {
+    const facts = [
+      { txt: "本次走的是 <b>WMS 分支</b>", chips: ["ev-068", 44], sel: 0 },
+      { txt: "一条路返回<b>常量 1000</b>", chips: [52] },
+      { txt: "另一条 <b>ISNULL(SUM(…), 0)</b>", chips: [48, 40] },
+      { txt: null, ph: 230, chips: [50] },
+      { txt: null, ph: 190, chips: [46, 52] },
+    ];
+    const readable = S.inv >= 2;
+    const factHtml = facts.map((f, i) => {
+      const body = f.txt && readable ? f.txt : `<i class="ph" style="width:${f.ph || [260, 210, 240][i]}px"></i>`;
+      const chips = f.chips.map((c) => typeof c === "string"
+        ? `<span class="evc sel ${S.inv === 1 ? "ring" : ""}">${c}</span>`
+        : `<span class="evc"><i class="ph" style="width:${c - 18}px;height:7px"></i></span>`).join("");
+      return `<div class="fact"><div class="txt">${body}</div>${chips}</div>`;
+    }).join("");
+    panel.innerHTML = `<h4><i class="ph dim" style="width:88px"></i></h4>
+      <div class="verdict">需要更多证据</div>
+      <div class="stats"><b>80%</b> 置信度 · <b>21</b> 事实 · <b>1</b> 假设</div>
+      <div class="facts">${factHtml}</div>
+      ${readable ? `<div class="sub">取决于行数据 · 本次 trace 未捕获</div>` : ""}
+      ${S.inv >= 3 ? `<div class="block warn"><div class="head"><span class="lbl">假设</span><span class="tag">未验证</span></div><div class="body">这个 0 很可能是 ISNULL 的回退值</div></div>
+      <div class="block"><div class="head"><span class="lbl">下一步</span></div><div class="body"><span class="lock"></span>在 TEST 只读查询相关表</div></div>` : ""}`;
+  }
+
+  // ----- status bar
+  const sb = document.getElementById("statusbar");
+  sb.innerHTML = `${S.counter === false ? `<span><i class="ph dim" style="width:120px"></i></span>` : `<span><b>210</b> 节点 · <b>363</b> 边</span>`}
+    <span><i class="ph dim" style="width:90px"></i></span><span><i class="ph dim" style="width:70px"></i></span><span><i class="ph dim" style="width:110px"></i></span>
+    <span class="tag">只读</span>`;
+})();
+</script>
+</body>
+</html>

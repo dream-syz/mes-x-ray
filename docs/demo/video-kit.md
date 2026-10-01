@@ -138,7 +138,7 @@ scripts/xray.sh status                       # api / web 都是 healthy
 两条制作路线，故事、口播、时间轴相同：
 
 - **路线 A · 录屏**：§6.5 的素材表。「流转」由产品自己演——图标题栏的 **▶ 回放流转**（深链 `&replay=1` 自动播、`&replay=hold` 只变暗等待）把一次追踪播成约 10 秒的动画：路径先暗下去，调用沿执行路径逐节点向下、每条边跑一个光点，取值再沿血缘逐层向上，最后落进字段亮出 `T12288: 0`。
-- **路线 B · 全片交给 MiniMax H3 生成，不录屏**：[`h3-brief.md`](h3-brief.md) 把这 2 分钟切成 12 段（每段 ≤ 15 秒）的提示词，真实截图只当构图 / 配色参考，四张字卡（`cards/*.png`）当首帧，旁白按段切好。拿到另一台电脑上直接生成、按序拼接即可。
+- **路线 B · 全片交给 MiniMax H3 生成，不录屏**：[`h3-brief.md`](h3-brief.md) 把这 2 分钟切成 14 段首尾帧生成（每段 ≤ 15 秒）：首尾帧是我们自己渲染的简化版 UI（[`h3/frames/`](h3/frames/)，相邻两段共用同一张帧，硬切无缝），四张字卡（`cards/*.png`）当首帧，提示词每段一个文件（[`h3/prompts/`](h3/prompts/)），旁白按段切好并带 SRT。拿到另一台电脑上网页粘贴或 `h3/h3.py` 批量提交即可。
 
 观众离开时只需要带走三句话：
 
@@ -205,7 +205,7 @@ scripts/xray.sh status                       # api / web 都是 healthy
 | Clip B（约 25 秒） | `/?order=PICK0843858&field=availableQuantity&scope=T12288&replay=1&lang=zh` | 载入 1.5 秒后自动回放（约 10 秒，鼠标移出画面）→ `0` 落定停 2 秒 → 鼠标划过左树三个数 → 停 |
 | Clip C（约 45 秒） | `/?order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1&lang=zh` | 停在结论 → 点一颗证据芯片 → 停 |
 | 静帧 D | 同 Clip C 的 URL，把 `investigate=1` 换成 `explain=1` | 浏览器截一张：对照卡左半（右半用 Clip C 定格） |
-| 静帧 E / F | [`03-live-trace-armed.png`](03-live-trace-armed.png) / [`03-live-trace.png`](03-live-trace.png) | 回放的首帧（路径全暗）和尾帧（全亮带取值）；路线 B 里是 C4 段的起止状态参考图 |
+| 静帧 E / F | [`03-live-trace-armed.png`](03-live-trace-armed.png) / [`03-live-trace.png`](03-live-trace.png) | 回放的首帧（路径全暗）和尾帧（全亮带取值）；路线 B 的 f05 / f07 帧就是它们的简化版 |
 | 字卡 ×4 | [`cards/`](cards/)：`title-card` 片头、`compare-card` 对照卡（1:42）、`policy-card` 收束（镜 5）、`end-card` 片尾 | 1920×1080，底 `#0a0d12`，字 `#e7eaf0`，强调色 `#3fc1e8`，「需要更多证据」用 `#f2b545`，字体同 UI；浏览器打开截图直接用，或作为 H3 的首帧 |
 
 录制姿势：Chrome 应用模式 + 干净配置（`--app=<深链> --window-size=1920,1080 --user-data-dir=/tmp/xray-demo-profile`），勿扰模式、隐藏 Dock、100% 缩放。鼠标直线匀速，只在要点的地方出现，点完立刻停手。
@@ -292,7 +292,8 @@ Web Visual Picking — Pick Order Details
 | [`../demo-script.md`](../demo-script.md) | 操作细节、深链、故障恢复 |
 | [`video-kit.md`](video-kit.md) | **本文件**：录视频制作单 |
 | `01-architecture.png` … `06b-destination-wagon.png` | 十张场景静帧（1600×1000，中文 UI；含英文调查对照，含回放首帧 `03-live-trace-armed.png`） |
-| [`h3-brief.md`](h3-brief.md) | 2 分钟短版全片交给 MiniMax H3 生成的提示词包：12 段分镜、统一风格块、参考文件角色、按段切好的旁白、验收与拼接 |
+| [`h3-brief.md`](h3-brief.md) | 2 分钟短版全片交给 MiniMax H3 生成：思路、14 段时间轴、生成顺序、验收与拼接 |
+| [`h3/`](h3/) | 生成包本体：`manifest.json`（时间轴）、`prompts/C00–C13.txt`（整文件可粘贴的提示词）、`frames/f01–f11.png`（首尾帧）、`frames.html` + `render.sh`（帧的源文件）、`h3.py`（API 批量提交 / 轮询 / 下载 / 拼接清单 / SRT）、`narration.srt` + `narration.txt` |
 | `cards/*.html` + `cards/*.png` | 四张字卡：片头、对照卡、收束、片尾（1920×1080，配色字体同 UI；浏览器打开即可截图，PNG 直接做 H3 首帧） |
 
 重新出静帧（改 UI / fixture 之后）：
