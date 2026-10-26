@@ -37,3 +37,7 @@ export const formatValue = (value: unknown): string => {
 };
 
 export const percent = (value: number): string => `${Math.round(value * 100)}%`;
+
+/** Keyboard labels follow the platform: Command on Apple devices, Control elsewhere. */
+export const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+export const SEARCH_SHORTCUT = IS_MAC ? "\u2318K" : "Ctrl+K";

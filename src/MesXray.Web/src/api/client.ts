@@ -2,6 +2,7 @@ import type {
   CaseOverview,
   ExplainResponse,
   FieldTrace,
+  GraphNode,
   ImpactResult,
   ImpactSummaryResponse,
   NodeDetailsResponse,
@@ -61,6 +62,8 @@ export const api = {
   subgraph: (root: string, depth = 3, columns = true) => request<Subgraph>(`/graph${q({ root, depth, columns })}`),
   node: (id: string, traceId?: string | null, scope?: string | null) =>
     request<NodeDetailsResponse>(`/node${q({ id, traceId, scope })}`),
+  /** Nodes whose id, name or qualified name contains the term (case-insensitive), shortest names first. */
+  search: (term: string, limit = 20, signal?: AbortSignal) => request<GraphNode[]>(`/search${q({ q: term, limit })}`, { signal }),
 
   trace: (field: string, traceId?: string | null, scope?: string | null) =>
     request<FieldTrace>(`/trace/field${q({ field, traceId, scope })}`),

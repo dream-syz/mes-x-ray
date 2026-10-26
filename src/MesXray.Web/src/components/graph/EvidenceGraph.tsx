@@ -385,17 +385,17 @@ function Canvas({ controller }: { controller: XRayController }) {
             {foldedCount > 0 ? t("graph.unfoldAll", { n: foldedCount }) : t("graph.foldAll")}
           </button>
         )}
-        {replayable && (
-          <button
-            type="button"
-            className={`btn ghost small replay-toggle ${replay?.running ? "is-running" : ""}`}
-            onClick={() => (replay?.running ? stopReplay() : startReplay())}
-            title={t("graph.replayHint")}
-          >
-            {replay?.running ? <Stop size={11} weight="fill" /> : <Play size={11} weight="fill" />}
-            {replay?.running ? t("graph.replayStop") : t("graph.replay")}
-          </button>
-        )}
+        {/* Always on screen so that it can be found; without a traced path it says what to do first. */}
+        <button
+          type="button"
+          className={`btn small replay-toggle ${replayable ? "is-ready" : ""} ${replay?.running ? "is-running" : ""}`}
+          onClick={() => (replay?.running ? stopReplay() : startReplay())}
+          disabled={!replayable}
+          title={replayable ? t("graph.replayHint") : t("graph.replayNeedsTrace")}
+        >
+          {replay?.running ? <Stop size={11} weight="fill" /> : <Play size={11} weight="fill" />}
+          {replay?.running ? t("graph.replayStop") : t("graph.replay")}
+        </button>
         <div className="legend">
           <span className="legend-item">
             <i /> {t("graph.legendPath")}

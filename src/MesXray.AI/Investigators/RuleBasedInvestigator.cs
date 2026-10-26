@@ -122,6 +122,10 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
             var ids = Cite(root.RuntimeEvidenceIds, [root.NodeId]);
             facts.Add(new KnownFact(p.FactObservedValue(string.Join("; ", root.RuntimeValueTexts), bundle.TraceId, bundle.Environment), ids));
             steps.Add(p.StepOverlaidTrace(bundle.TraceId!, bundle.Scope));
+            if (TryRowContext(bundle, out var rowFact, out var rowIds))
+            {
+                facts.Add(new KnownFact(p.FactRowContext(rowFact.PickQuantity, rowFact.OnHand, rowFact.Allocated, rowFact.StorageBin), Cite(rowIds)));
+            }
         }
         else if (bundle.TraceId is not null)
         {
@@ -162,7 +166,11 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
         // 4. Expressions and branches. Hops are depth-first, so the outermost expression is examined first; once a
         //    hypothesis explains the observed value, deeper ISNULL/constant coincidences are not repeated.
         var valueExplained = false;
+        var valueConfirmed = false;
+        string? causeFunction = null;
+        string? causeValue = null;
         var rowTablesToCheck = new SortedSet<string>(StringComparer.Ordinal);
+        var functionsReported = new HashSet<string>(StringComparer.Ordinal);
         foreach (var expr in bundle.HopsOfType(NodeType.Expression))
         {
             var produced = parentOf.GetValueOrDefault(expr);
@@ -170,6 +178,14 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
             var exprIds = Cite([expr.NodeId, expr.ViaEdgeId, produced?.NodeId]);
             var expression = expr.Expression ?? expr.Name;
             facts.Add(new KnownFact(p.FactExpression(producedName, expression), exprIds));
+
+            if (produced is { Type: NodeType.Function } && ReturnValueTexts(produced) is { Count: > 0 } returns && functionsReported.Add(produced.NodeId))
+            {
+                var functionIds = Cite(produced.RuntimeEvidenceIds, [produced.NodeId]);
+                facts.Add(new KnownFact(p.FactFunctionReturned(produced.Name, returns), functionIds));
+                causeFunction = produced.Name;
+                causeValue = ValueOf(returns[0]);
+            }
 
             foreach (var note in expr.Notes.Where(n => expression.Contains(VariableOf(n), StringComparison.OrdinalIgnoreCase)))
             {
@@ -180,6 +196,7 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
             var controls = children.Where(c => c.ViaRelation == RelationType.ControlledBy).ToList();
             var branches = children.Where(c => c.Condition is not null).GroupBy(c => c.Condition!, StringComparer.Ordinal).ToList();
             var constants = produced?.LiteralBranches ?? [];
+            var observedForProduced = ObservedReturnValue(produced) ?? ObservedReturnValue(root);
 
             foreach (var branch in branches)
             {
@@ -213,13 +230,18 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
                 if (columns.Count > 0)
                 {
                     facts.Add(new KnownFact(p.FactBranchDependsOnRows(producedName, columns.Select(p.Qualify)), controlIds));
-                    rowTablesToCheck.UnionWith(TablesOf(columns));
+                    if (!valueConfirmed)
+                    {
+                        rowTablesToCheck.UnionWith(TablesOf(columns));
+                    }
                 }
 
                 if (investigate && !valueExplained)
                 {
-                    valueExplained |= AddConstantHypothesis(p, root, constants, producedName, hypotheses, Cite);
-                    valueExplained |= AddIsNullHypothesis(p, root, children.Where(c => c.Condition is not null).ToList(), producedName, hypotheses, Cite, childrenOf);
+                    var confirmed = produced?.Type == NodeType.Function && ReturnValueTexts(produced).Count > 0;
+                    valueExplained |= AddConstantHypothesis(p, observedForProduced, constants, producedName, hypotheses, Cite, confirmed);
+                    valueExplained |= AddIsNullHypothesis(p, observedForProduced, root, children.Where(c => c.Condition is not null).ToList(), producedName, hypotheses, Cite, childrenOf, confirmed);
+                    valueConfirmed |= confirmed && valueExplained;
                 }
 
                 continue;
@@ -253,11 +275,15 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
 
             if (investigate && !valueExplained)
             {
-                valueExplained |= AddIsNullHypothesis(p, root, activeSources, producedName, hypotheses, Cite, childrenOf);
+                var functionSource = activeSources.FirstOrDefault(s => s.Type == NodeType.Function && ReturnValueTexts(s).Count > 0);
+                var confirmed = functionSource is not null;
+                var observed = ObservedReturnValue(functionSource) ?? observedForProduced;
+                valueExplained |= AddIsNullHypothesis(p, observed, root, activeSources, producedName, hypotheses, Cite, childrenOf, confirmed);
+                valueConfirmed |= confirmed && valueExplained;
             }
         }
 
-        if (rowTablesToCheck.Count > 0)
+        if (rowTablesToCheck.Count > 0 && !valueConfirmed)
         {
             nextSteps.Add(p.NextCheckRows(rowTablesToCheck.ToList()));
         }
@@ -302,11 +328,18 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
         }
 
         var staticGap = unknowns.Count > 0 || unknownHops.Count > 0;
-        var hypothesisOnly = !staticGap && hypotheses.Count > 0;
-        var verdict = staticGap || hypotheses.Count > 0 ? ExplainVerdict.NeedMoreEvidence : ExplainVerdict.Known;
+        var openHypotheses = hypotheses.Count(h => h.Status == HypothesisStatus.Unverified);
+        var hypothesisOnly = !staticGap && openHypotheses > 0;
+        var verdict = staticGap || openHypotheses > 0 ? ExplainVerdict.NeedMoreEvidence : ExplainVerdict.Known;
         var confidence = Confidence(unknownHops.Count, facts.Count, root.RuntimeEvidenceIds.Count > 0, runtimeNotes.Count, hypothesisOnly);
 
-        var summary = p.Summary(bundle.Focus.Name, facts.Count, OriginatingProcedure(bundle), root.RuntimeValueTexts, verdict, unknownHops.Select(h => h.Name), hypothesisOnly, runtimeNotes.Count);
+        string? cause = null;
+        if (verdict == ExplainVerdict.Known && causeFunction is not null && causeValue is not null)
+        {
+            cause = p.CauseFunctionReturned(causeFunction, causeValue);
+        }
+
+        var summary = p.Summary(bundle.Focus.Name, facts.Count, OriginatingProcedure(bundle), root.RuntimeValueTexts, verdict, unknownHops.Select(h => h.Name), hypothesisOnly, runtimeNotes.Count, cause);
 
         return new Explanation
         {
@@ -331,25 +364,28 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
     }
 
     /// <summary>
-    /// The observed value equals the ISNULL default of a candidate branch: the inner value was probably NULL. Skipped when
-    /// the branch wraps a scanned function (its own RETURN expression is examined instead), because such a function
-    /// cannot be shown to return NULL from the outside.
+    /// The observed value equals the ISNULL default of a candidate branch. When the producing function's return was
+    /// captured, the match is <see cref="HypothesisStatus.Supported"/>; otherwise it stays unverified. Skipped when
+    /// the branch wraps a scanned function without a captured return (its own RETURN expression is examined instead).
     /// </summary>
     private static bool AddIsNullHypothesis(
         InvestigatorPhrases p,
+        string? observed,
         HopSummary root,
         List<HopSummary> candidates,
         string producedName,
         List<Hypothesis> hypotheses,
         Func<IEnumerable<string?>[], string[]> cite,
-        Dictionary<HopSummary, List<HopSummary>> childrenOf)
+        Dictionary<HopSummary, List<HopSummary>> childrenOf,
+        bool confirmed)
     {
-        var observed = root.RuntimeValueTexts.Select(ValueOf).FirstOrDefault();
         if (observed is null)
         {
             return false;
         }
 
+        // A scanned function on this branch is examined via its own RETURN expression; do not treat the outer
+        // ISNULL(udf(...), 0) as the explanation even when the function return is already captured.
         if (candidates.Any(s => s.Type == NodeType.Function && s.Status == NodeStatus.Known && childrenOf.ContainsKey(s)))
         {
             return false;
@@ -362,11 +398,14 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
             if (match.Success && string.Equals(match.Groups["default"].Value.Trim(), observed, StringComparison.OrdinalIgnoreCase))
             {
                 var sources = candidates.Where(s => s.Expression == expression).ToList();
+                var text = confirmed
+                    ? p.HypothesisIsNullFallbackConfirmed(producedName, observed, expression!)
+                    : p.HypothesisIsNullFallback(producedName, observed, expression!);
                 hypotheses.Add(new Hypothesis(
-                    p.HypothesisIsNullFallback(producedName, observed, expression!),
-                    HypothesisStatus.Unverified,
-                    p.CheckInnerFunction,
-                    cite([root.RuntimeEvidenceIds, sources.Select(s => s.NodeId), sources.Select(s => s.ViaEdgeId)])));
+                    text,
+                    confirmed ? HypothesisStatus.Supported : HypothesisStatus.Unverified,
+                    confirmed ? null : p.CheckInnerFunction,
+                    cite([root.RuntimeEvidenceIds, sources.Select(s => s.NodeId), sources.Select(s => s.ViaEdgeId), sources.SelectMany(s => s.RuntimeEvidenceIds)])));
                 added = true;
             }
         }
@@ -374,10 +413,16 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
         return added;
     }
 
-    /// <summary>The observed value equals a constant branch (<c>RETURN 1000</c>): its condition probably held.</summary>
-    private static bool AddConstantHypothesis(InvestigatorPhrases p, HopSummary root, IReadOnlyList<LiteralBranch> constants, string producedName, List<Hypothesis> hypotheses, Func<IEnumerable<string?>[], string[]> cite)
+    /// <summary>The observed value equals a constant branch (<c>RETURN 1000</c>): supported when the function return was captured.</summary>
+    private static bool AddConstantHypothesis(
+        InvestigatorPhrases p,
+        string? observed,
+        IReadOnlyList<LiteralBranch> constants,
+        string producedName,
+        List<Hypothesis> hypotheses,
+        Func<IEnumerable<string?>[], string[]> cite,
+        bool confirmed)
     {
-        var observed = root.RuntimeValueTexts.Select(ValueOf).FirstOrDefault();
         if (observed is null)
         {
             return false;
@@ -386,15 +431,82 @@ public sealed partial class RuleBasedInvestigator : IAiInvestigator
         var added = false;
         foreach (var constant in constants.Where(c => c.Condition is not null && ValuesEqual(c.Literal, observed)))
         {
+            var text = confirmed
+                ? p.HypothesisConstantBranchConfirmed(producedName, observed, constant.Condition!)
+                : p.HypothesisConstantBranch(producedName, observed, constant.Condition!);
             hypotheses.Add(new Hypothesis(
-                p.HypothesisConstantBranch(producedName, observed, constant.Condition!),
-                HypothesisStatus.Unverified,
-                p.CheckConstantBranch(constant.Condition!),
-                cite([root.RuntimeEvidenceIds, [constant.LineageId]])));
+                text,
+                confirmed ? HypothesisStatus.Supported : HypothesisStatus.Unverified,
+                confirmed ? null : p.CheckConstantBranch(constant.Condition!),
+                cite([[constant.LineageId]])));
             added = true;
         }
 
         return added;
+    }
+
+    /// <summary>
+    /// Runtime value texts that are return/result values, not timing chips overlaid on the same SP/UDF node
+    /// (labels like <c>dbo.X 6 ms = 6</c>).
+    /// </summary>
+    private static IReadOnlyList<string> ReturnValueTexts(HopSummary? hop)
+    {
+        if (hop is null || hop.RuntimeValueTexts.Count == 0)
+        {
+            return [];
+        }
+
+        var returns = hop.RuntimeValueTexts.Where(t => !t.Contains(" ms = ", StringComparison.Ordinal)).ToList();
+        return returns.Count > 0 ? returns : hop.RuntimeValueTexts;
+    }
+
+    private static string? ObservedReturnValue(HopSummary? hop)
+        => ReturnValueTexts(hop).Select(ValueOf).FirstOrDefault();
+
+    private readonly record struct RowContextValues(string PickQuantity, string OnHand, string Allocated, string StorageBin);
+
+    /// <summary>Sibling API-response leaves of the same material row, when present in the evidence bundle.</summary>
+    private static bool TryRowContext(EvidenceBundle bundle, out RowContextValues values, out IEnumerable<string?>[] evidenceIds)
+    {
+        values = default;
+        evidenceIds = [];
+        if (bundle.Scope is null)
+        {
+            return false;
+        }
+
+        string? Value(string suffix)
+        {
+            var item = bundle.Items.FirstOrDefault(i =>
+                i.Kind == EvidenceKind.Runtime
+                && i.NodeId == $"json:pickOrderRows.{suffix}"
+                && string.Equals(i.Scope, bundle.Scope, StringComparison.OrdinalIgnoreCase)
+                && i.Value is not null);
+            return item?.Value is { } v ? EvidenceBundleBuilder.Format(v).Trim('"') : null;
+        }
+
+        var pickQuantity = Value("pickQuantity");
+        var onHand = Value("pickStorageBin.onHandQuantity");
+        var allocated = Value("pickStorageBin.allocatedQuantity");
+        var storageBin = Value("pickStorageBin.storageBin");
+        if (pickQuantity is null || onHand is null || allocated is null || storageBin is null)
+        {
+            return false;
+        }
+
+        values = new RowContextValues(pickQuantity, onHand, allocated, storageBin);
+        evidenceIds =
+        [
+            bundle.Items.Where(i =>
+                    i.Kind == EvidenceKind.Runtime
+                    && i.NodeId is "json:pickOrderRows.pickQuantity"
+                        or "json:pickOrderRows.pickStorageBin.onHandQuantity"
+                        or "json:pickOrderRows.pickStorageBin.allocatedQuantity"
+                        or "json:pickOrderRows.pickStorageBin.storageBin"
+                    && string.Equals(i.Scope, bundle.Scope, StringComparison.OrdinalIgnoreCase))
+                .Select(i => (string?)i.Id),
+        ];
+        return true;
     }
 
     private static IReadOnlyList<string> TablesOf(IEnumerable<HopSummary> columns)

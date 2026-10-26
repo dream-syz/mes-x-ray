@@ -1,7 +1,30 @@
-import { ArrowLeft, ArrowRight } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, ArrowRight, Check, Copy } from "@phosphor-icons/react";
 import type { NodeDetailsResponse } from "../../api/types";
 import { useI18n } from "../../lib/I18nContext";
 import { formatValue } from "../../lib/presentation";
+
+/** Copies the node id (the join key of every API call and deep link) and confirms for a moment. */
+function CopyId({ id }: { id: string }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const handle = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(handle);
+  }, [copied]);
+  const copy = () => {
+    navigator.clipboard
+      ?.writeText(id)
+      .then(() => setCopied(true))
+      .catch(() => setCopied(false));
+  };
+  return (
+    <button type="button" className={`btn ghost small icon copy-id ${copied ? "ok" : ""}`} onClick={copy} title={copied ? t("details.copied") : t("details.copyId")} aria-label={t("details.copyId")}>
+      {copied ? <Check size={12} weight="bold" /> : <Copy size={12} weight="bold" />}
+    </button>
+  );
+}
 
 export function DetailsView({ response, onSelect }: { response: NodeDetailsResponse; onSelect: (id: string) => void }) {
   const { details, runtimeValues } = response;
@@ -17,7 +40,10 @@ export function DetailsView({ response, onSelect }: { response: NodeDetailsRespo
         <span className={`status-chip ${node.status}`}>{status(node.status)}</span>
       </div>
       <h3 title={node.id}>{node.name}</h3>
-      <code className="node-id">{node.id}</code>
+      <div className="node-id-row">
+        <code className="node-id">{node.id}</code>
+        <CopyId id={node.id} />
+      </div>
       {node.qualifiedName && node.qualifiedName !== node.name && <div className="muted qualified">{node.qualifiedName}</div>}
       {node.description && <p className="description">{node.description}</p>}
       {node.metadata?.reason && <p className="gap-reason">{node.metadata.reason}</p>}

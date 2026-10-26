@@ -36,7 +36,21 @@ for (const lang of LANGS) {
       await expect(page.locator(".tree-name.key-field", { hasText: /^availableQuantity$/ })).toBeVisible();
       await expect(page.locator(".xray-node.focus")).toContainText("Pick Order Details");
       expect(await page.locator(".xray-node").count()).toBeGreaterThan(40);
-      await expect(page.locator(".pane-right .empty")).toHaveText(t("empty.details"));
+
+      // Nothing is selected yet, so the inspector opens with the start guide: three steps, the sample order and the
+      // key fields of the case as one-click actions; the action buttons wait for a selection.
+      const guide = page.locator(".pane-right .start-guide");
+      await expect(guide.locator("h3")).toHaveText(t("guide.title"));
+      await expect(guide.locator(".guide-steps li")).toHaveCount(3);
+      await expect(guide.locator(".guide-actions .btn.primary")).toHaveText(t("guide.loadSample", { order: "PICK0843858" }));
+      await expect(guide.locator(".guide-fields .btn", { hasText: /availableQuantity$/ })).toBeVisible();
+      await expect(page.locator(".actions .btn").first()).toBeDisabled();
+
+      // Tracing a key field from the guide runs the same Trace Source as the response tree.
+      await guide.locator(".guide-fields .btn", { hasText: /availableQuantity$/ }).click();
+      await expect(page.locator(".trace-view .view-title code")).toHaveText("json:pickOrderRows.availableQuantity");
+      await expect(page.locator(".selection-line b")).toHaveText("availableQuantity");
+      await expect(page.locator(".pane-right .start-guide")).toHaveCount(0);
     });
 
     test("2 trace source: availableQuantity through both WMS branches down to INVENTORY2", async ({ page }) => {
@@ -169,16 +183,16 @@ for (const lang of LANGS) {
       await expect(toggle).toHaveText(t("graph.replay"));
     });
 
-    test("4 investigate: inside the UDF, the 0 is explained by a hypothesis, so Need More Evidence", async ({ page, request }) => {
+    test("4 investigate: UDF returned 0 from EBBA inventory, so Known with a supported hypothesis", async ({ page, request }) => {
       await openScene(page, SCENES.investigate, lang);
       const view = page.locator(".explain-view");
 
       await expect(view.locator(".view-title h3")).toHaveText(t("explain.title"));
       await expect(view.locator(".view-title code")).toHaveText("json:pickOrderRows.availableQuantity");
-      await expect(view.locator(".verdict")).toHaveClass(/verdict-partial/);
-      await expect(view.locator(".verdict-label")).toHaveText(t("verdict.needMoreEvidence"));
+      await expect(view.locator(".verdict")).toHaveClass(/verdict-known/);
+      await expect(view.locator(".verdict-label")).toHaveText(t("verdict.known"));
 
-      // The header numbers are the API's numbers for the same request (the talk track quotes 80 %, 21 facts, 1 unknown).
+      // The header numbers are the API's numbers for the same request (the talk track quotes Known + the cause sentence).
       const response = await request.post("/api/xray/ai/investigate", {
         data: { traceId: "trace-demo-001", focusNodeId: "json:pickOrderRows.availableQuantity", scope: "T12288", language: lang },
       });
@@ -188,8 +202,9 @@ for (const lang of LANGS) {
       expect(metrics.facts).toBe(api.knownFacts.length);
       expect(metrics.unknowns).toBe(api.unknowns.length);
       expect(metrics.facts).toBeGreaterThanOrEqual(15);
-      expect(metrics.unknowns).toBe(1);
+      expect(metrics.unknowns).toBe(0);
       await expect(view.locator(".summary")).toHaveText(api.summary);
+      await expect(view.locator(".summary")).toContainText(lang === "zh" ? "0 的原因：AF_Pick_GetAvailableQuantity" : "Cause of 0: AF_Pick_GetAvailableQuantity");
       await expect(page.locator(".tabs button.active .count")).toHaveText(String(metrics.facts));
 
       await expect(view.locator(".steps li")).toHaveCount(6);
@@ -198,16 +213,19 @@ for (const lang of LANGS) {
       await expect(facts.filter({ hasText: "RETURN 1000 ELSE RETURN ISNULL(SUM(QuantityOnHand), 0)" })).toHaveCount(1);
       await expect(facts.filter({ hasText: lang === "zh" ? "返回常量 1000" : "returns the constant 1000" })).toHaveCount(1);
       await expect(facts.filter({ hasText: "@UseQuantityAllocated = 0 -> 1 WHEN EXISTS" })).toHaveCount(1);
+      await expect(facts.filter({ hasText: lang === "zh" ? "函数 AF_Pick_GetAvailableQuantity 返回" : "Function AF_Pick_GetAvailableQuantity returned" })).toHaveCount(1);
+      await expect(facts.filter({ hasText: lang === "zh" ? "已拣选数量" : "already picked" })).toHaveCount(1);
 
       const hypotheses = view.locator(".hypotheses li");
       await expect(hypotheses).toHaveCount(1);
       await expect(hypotheses.first()).toContainText("ISNULL(SUM(QuantityOnHand), 0)");
-      await expect(hypotheses.first().locator(".status-chip")).toHaveText(t("hypothesis.unverified"));
-      await expect(hypotheses.first()).toContainText("TEST");
+      await expect(hypotheses.first()).toContainText(lang === "zh" ? "EBBA 库存" : "EBBA inventory");
+      await expect(hypotheses.first().locator(".status-chip")).toHaveText(t("hypothesis.supported"));
+      await expect(hypotheses.first().locator(".muted")).toHaveCount(0);
 
-      await expect(view.locator(".unknown-list li")).toHaveCount(1);
-      await expect(view.locator(".unknown-list li").first()).toContainText("AF_Pick_GetAvailableQuantity");
-      await expect(view.locator(".next-steps li").filter({ hasText: "dbo.DET2_ILG_ProductDeliveryMethod" })).toHaveCount(1);
+      await expect(view.locator(".unknown-list li")).toHaveCount(0);
+      await expect(view.locator(".ok")).toContainText(t("explain.noGaps"));
+      await expect(view.locator(".next-steps li").filter({ hasText: "dbo.DET2_ILG_ProductDeliveryMethod" })).toHaveCount(0);
 
       // Every fact is bound to evidence, the runtime evidence is cited, and the audit block names the provider.
       const chips = await evidenceChipIds(page);
@@ -289,10 +307,65 @@ for (const lang of LANGS) {
   });
 }
 
+test("search palette: Cmd/Ctrl+K finds a node by name, Enter selects it, the hit offers Impact", async ({ page }) => {
+  await openScene(page, SCENES.architecture, "en");
+  const t = labels("en");
+
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+KeyK" : "Control+KeyK");
+  const dialog = page.locator(".search-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("input")).toBeFocused();
+  await expect(dialog.locator(".search-note")).toHaveText(t("search.minChars"));
+
+  await dialog.locator("input").fill("WMS_Enabled");
+  const hits = dialog.locator(".search-hit");
+  await expect(hits.first()).toContainText("WMS_Enabled");
+  await expect(hits.first()).toHaveClass(/active/);
+  await expect(dialog.locator(".dialog-footer")).toContainText(t("search.hint"));
+
+  await page.keyboard.press("Enter");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".pane-right .pane-sub")).toHaveText("param:WMS_Enabled");
+  await expect(page.locator(".tabs button.active")).toHaveText(t("tab.details"));
+  await expect(page.locator(".details-view h3")).toHaveText("WMS_Enabled");
+  await expect(page.locator(".selection-line b")).toHaveText("WMS_Enabled");
+
+  // `/` opens it as well (outside of an input), Escape closes it, and the Impact action runs the analysis.
+  await page.keyboard.press("/");
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await page.locator(".header-tools .tool-btn").first().click();
+  await dialog.locator("input").fill("WMS_Enabled");
+  await hits.first().hover();
+  await hits.first().locator(".btn", { hasText: t("search.impact") }).click();
+  await expect(page.locator(".impact-view .view-title code")).toHaveText("param:WMS_Enabled");
+});
+
+test("an unknown pick order is reported in a banner that names the known orders; the help sheet opens with ?", async ({ page }) => {
+  await openScene(page, SCENES.architecture, "zh");
+  const t = labels("zh");
+
+  await page.locator(".pick-order input").fill("PICK0000000");
+  await page.locator(".pick-order button[type=submit]").click();
+  const banner = page.locator(".alert-banner");
+  await expect(banner).toHaveText(new RegExp(`PICK0000000.*PICK0843858`));
+  await expect(page.locator(".live-badge")).toHaveCount(0);
+  await banner.locator(".btn").click();
+  await expect(banner).toHaveCount(0);
+
+  await page.keyboard.press("Shift+Slash");
+  const help = page.locator(".help-dialog");
+  await expect(help.locator(".dialog-header h3")).toHaveText(t("help.title"));
+  await expect(help.locator(".help-flow li")).toHaveCount(5);
+  await help.locator(".dialog-footer .btn").click();
+  await expect(help).toHaveCount(0);
+});
+
 test("switching the language re-requests the explanation and keeps ids, values and verdict", async ({ page }) => {
   await openScene(page, SCENES.investigate, "en");
   const view = page.locator(".explain-view");
-  await expect(view.locator(".verdict-label")).toHaveText(labels("en")("verdict.needMoreEvidence"));
+  await expect(view.locator(".verdict-label")).toHaveText(labels("en")("verdict.known"));
   const before = { metrics: await verdictMetrics(page), chips: await evidenceChipIds(page) };
   expect(before.chips.length).toBeGreaterThan(0);
 
@@ -300,8 +373,8 @@ test("switching the language re-requests the explanation and keeps ids, values a
 
   await expect(page.locator(".lang-switch button.active")).toHaveText("中文");
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
-  await expect(view.locator(".verdict-label")).toHaveText(labels("zh")("verdict.needMoreEvidence"));
-  await expect(view.locator(".summary")).toContainText("需要更多证据");
+  await expect(view.locator(".verdict-label")).toHaveText(labels("zh")("verdict.known"));
+  await expect(view.locator(".summary")).toContainText("0 的原因：AF_Pick_GetAvailableQuantity");
   await expect(view.locator(".steps li").first()).toContainText("定位焦点节点");
 
   // Sentences changed language; the evidence ids, numbers and verdict did not. Identifiers and SQL stay as they are.

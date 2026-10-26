@@ -58,28 +58,28 @@
 
 **台词**：
 > 现在把一次真实调用（脱敏后的 fixture）叠到图上。响应树变成了真实响应，图上的节点带上了取值。
-> T12288：pickQuantity = 18，onHandQuantity = 0，allocatedQuantity = 18，availableQuantity = 0。`WMS_Enabled` 的运行时取值是 1。
-> 注意来源：pickQuantity 是 `AP_Pick_GetPickOrderRows` 里对 `APPQD.Quantity` 的求和，onHand 和 allocated 来自 `AP_Pick_GetPickStorageBin`，三个数最后都落在表列上。Available 不一样：它是同一个存储过程里的 CASE，`WMS_Enabled = 1` 时走 UDF。所以它是 0 而别的不是，这不是巧合，是来源不同。
+> T12288：pickQuantity = 18，onHandQuantity = 0（已拣选数量），allocatedQuantity = 18（剩余待拣选数量），availableQuantity = 0。`WMS_Enabled` 的运行时取值是 1。
+> 注意来源：pickQuantity 是 `AP_Pick_GetPickOrderRows` 里对 `APPQD.Quantity` 的求和；onHand / allocated 来自 `AP_Pick_GetPickStorageBin`，表示这张拣货单上的进度，不是 EBBA 仓库库存。Available 不一样：它是同一个存储过程里的 CASE，`WMS_Enabled = 1` 时走 UDF 查 EBBA 库存。所以它是 0 而别的不是，这不是巧合，是来源不同。
 
 **看点**：节点上的取值芯片带 `T12288:` 前缀，表示是行级作用域；顶部 FIXTURE 徽标和 trace id 一直可见，说明数据来自哪里。图标题栏的「▶ 回放流转」把这次追踪播成动画：路径先变暗，调用沿执行路径逐节点向下、每条边上跑一个光点，然后取值沿血缘逐层向上，最后落进 `availableQuantity` 并亮出 `T12288: 0`（约 10 秒）。现场想让观众「看见流转」就点它一次；录视频用深链 `&replay=1`。
 
-## 阶段 4（2:00 - 3:15）调查：假设就标假设
+## 阶段 4（2:00 - 3:15）调查：0 的原因说清楚
 
 ![调查](04-investigate.png)
 
 **动作**：点右上角 **调查**。
 
 **台词**：
-> 让调查器解释这个 0。结论是「需要更多证据」，置信度 80%，21 条事实，63 项引用证据，1 个未知。
-> 先看可审计步骤：定位焦点节点、叠加 trace、重建执行路径、遍历 23 跳、按 `WMS_Enabled = 1` 评估 CASE 条件、检查定义（路径上 0 个未知节点）。这是它做了什么，不是它怎么想的。
-> 每条事实后面都挂着证据芯片：`ev-068` 是运行时证据，其余是节点 id、边 id 和血缘 id。点任何一个芯片，图和检视器都会跳到对应节点。
-> 关键的几条：本次 trace 生效的分支是 `@WMS_Enabled = 1`，走 `AF_Pick_GetAvailableQuantity`；函数内部，`EXISTS (... 'LVP' ...)` 那一支返回常量 1000，否则返回 `ISNULL(SUM(QuantityOnHand), 0)`；走哪一支取决于 `DET2_ILG_ProductDeliveryMethod` 的几列行数据，trace 里没有捕获这些行；局部变量 `@UseQuantityAllocated` 什么时候从 0 变成 1 也写成了事实。
-> 然后是唯一一条假设，状态「未验证」：`AF_Pick_GetAvailableQuantity` 等于 `ISNULL(SUM(QuantityOnHand), 0)` 的回退值 0，内层很可能是 NULL，也就是 `INVENTORY2` 里没有匹配的库存行。附带一个只读的核查步骤：在 TEST 环境查这个物料在 `DET2_ILG_ProductDeliveryMethod`、`PRODUCT`、`PRODUCT_GROUP` 里的行。
-> 注意区分：同一个字段点「解释」，结论是「已知」、90%，因为静态血缘每一跳都有证据；点「调查」问「为什么是 0」，答案依赖一条假设，所以是「需要更多证据」。这就是这个项目对 AI 的定位：证据说到哪里，结论就到哪里，剩下的标成假设并告诉你下一步去拿什么证据。
+> 让调查器解释这个 0。结论是「已知」，摘要里直接写原因：`AF_Pick_GetAvailableQuantity` 查这个料在 EBBA 库存，返回了 0。
+> 先看可审计步骤：定位焦点节点、叠加 trace、重建执行路径、遍历血缘、按 `WMS_Enabled = 1` 评估 CASE 条件、检查定义。这是它做了什么，不是它怎么想的。
+> 每条事实后面都挂着证据芯片：运行时证据、节点 id、边 id 和血缘 id。点任何一个芯片，图和检视器都会跳到对应节点。
+> 关键的几条：本次 trace 生效的分支是 `@WMS_Enabled = 1`，走 `AF_Pick_GetAvailableQuantity`；fixture 捕获了函数按物料的返回值，图上函数节点亮着 `T12288: 0`；该物料行上下文也写清楚了——`pickQuantity = 18`，`onHandQuantity = 0`（已拣选数量），`allocatedQuantity = 18`（剩余待拣选数量），库位 `A-01-02,A-01-05`。注意：这里的 onHand / allocated 是拣货进度，不是 EBBA 仓库库存。
+> 然后是一条假设，状态「成立」：函数返回 0，等于 ELSE 分支 `ISNULL(SUM(QuantityOnHand), 0)` 的回退值——EBBA 库存（`INVENTORY2`）里该物料在拣货库位没有在库数量。因为函数返回值已经在 trace 里，所以不再标「未验证」，也不再要求去 TEST 里查。
+> 这就是这个项目对 AI 的定位：证据说到哪里，结论就到哪里；能证实的标「成立」，证不完的才标「未验证」并告诉你下一步。
 
 **看点**：审计块里有 provider、model、prompt 版本、时间戳和引用的证据 id 数。切一下 EN / 中文：句子换语言，证据 id、取值和结论完全不变。
 
-对照备用：物料 T55102 的 availableQuantity 是 1000，把 scope 换成 T55102 再调查，假设变成「等于条件 `EXISTS (... DeliveryMethod = 'LVP' ...)` 成立时返回的常量 1000」；T40917 的 860 既不是常量也不是 ISNULL 回退值，结论直接是「已知」。
+对照备用：物料 T55102 的 availableQuantity 是 1000，把 scope 换成 T55102 再调查，假设变成「返回 1000，证实 LVP 常量分支」且状态「成立」；T40917 的 860 既不是常量也不是 ISNULL 回退值，结论直接是「已知」、没有假设。
 
 问答备用：
 - 「这是 LLM 吗？」演示默认是离线规则引擎（provider `rules`）。接 OpenAI 兼容模型时，输出走同一个证据绑定校验器：引用了不存在证据的句子会被降级为假设，没有任何证据支撑的回答会被判为 Unknown。
@@ -129,7 +129,7 @@
 
 1. 演示前一天：`cd src/MesXray.Web && npm run e2e`。15 个 Playwright 用例会用本机 Chrome 把七个场景中英文各走一遍（自己起 API 和 Vite，不碰正在运行的演示栈），断言结论、数值、路径和语言切换。全绿再往下走。
 2. `scripts/xray.sh status`：api 与 web 都是 healthy；记下 web 的实际端口。
-3. 打开场景 4 的深链：应看到「需要更多证据」、80%、21 条事实、1 条假设。这一条通了，说明 API、图、runtime fixture、调查器全部在线。
+3. 打开场景 4 的深链：应看到「已知」、原因句里有 `AF_Pick_GetAvailableQuantity`、一条状态为「成立」的假设、未知项为 0。这一条通了，说明 API、图、runtime fixture、调查器全部在线。
 4. 浏览器缩放 100%，窗口不小于 1280 宽；1400 以下会隐藏副标题和图例，这是设计行为。
 5. 语言：演示前决定用 EN 还是中文，并在浏览器里切一次，让它记住。
 6. 关掉其它占端口的项目不是必须的，脚本会自己换端口；但不要在演示中途重启它们。

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CaretDown, CaretRight } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, MagnifyingGlass, X } from "@phosphor-icons/react";
 import type { GraphNode } from "../api/types";
 import type { XRayController } from "../state/useXRay";
 import { useI18n } from "../lib/I18nContext";
@@ -73,6 +73,7 @@ export function ResponseTree({ controller }: { controller: XRayController }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const known = useMemo(() => new Set(state.responseFields.map((f) => f.id)), [state.responseFields]);
+  const descriptions = useMemo(() => new Map(state.responseFields.filter((f) => f.description).map((f) => [f.id, f.description!])), [state.responseFields]);
   const keyFields = useMemo(() => new Set(state.overview?.case.keyFields ?? []), [state.overview]);
 
   const tree = useMemo(() => {
@@ -95,11 +96,34 @@ export function ResponseTree({ controller }: { controller: XRayController }) {
     return keys;
   }, [tree, state.selectedNodeId, state.scope]);
 
-  const isOpen = (leaf: TreeLeaf) => expanded[leaf.key] ?? (leaf.depth < 2 || autoOpen.has(leaf.key));
+  // Filter: a branch stays when it, or anything below it, matches the typed text (field name or live value); every
+  // kept branch is open so that the matches are in sight.
+  const [filter, setFilter] = useState("");
+  const needle = filter.trim().toLowerCase();
+  const kept = useMemo(() => {
+    if (!needle) return null;
+    const keys = new Set<string>();
+    const visit = (leaf: TreeLeaf): boolean => {
+      let hit = leaf.label.toLowerCase().includes(needle) || (leaf.value !== undefined && formatValue(leaf.value).toLowerCase().includes(needle));
+      for (const child of leaf.children) if (visit(child)) hit = true;
+      if (hit) keys.add(leaf.key);
+      return hit;
+    };
+    for (const leaf of tree) visit(leaf);
+    return keys;
+  }, [tree, needle]);
+
+  const isOpen = (leaf: TreeLeaf) => (kept ? true : expanded[leaf.key] ?? (leaf.depth < 2 || autoOpen.has(leaf.key)));
+  const visibleChildren = (leaf: TreeLeaf) => (kept ? leaf.children.filter((child) => kept.has(child.key)) : leaf.children);
+  const roots = kept ? tree.filter((leaf) => kept.has(leaf.key)) : tree;
 
   const renderLeaf = (leaf: TreeLeaf) => {
     const selected = isSelected(leaf);
     const traceable = leaf.nodeId !== null && known.has(leaf.nodeId);
+    const children = visibleChildren(leaf);
+    const value = leaf.value !== undefined ? formatValue(leaf.value) : null;
+    const description = leaf.nodeId ? descriptions.get(leaf.nodeId) : undefined;
+    const labelTitle = description ?? (traceable ? t("tree.traceFor", { id: leaf.nodeId }) : leaf.nodeId ? t("tree.notTraceable", { id: leaf.nodeId }) : undefined);
     return (
       <li key={leaf.key}>
         <div className={`tree-row ${selected ? "selected" : ""} ${traceable ? "traceable" : ""}`} style={{ paddingLeft: "4px" }}>
@@ -114,14 +138,18 @@ export function ResponseTree({ controller }: { controller: XRayController }) {
             type="button"
             className="tree-label"
             disabled={!traceable}
-            title={traceable ? t("tree.traceFor", { id: leaf.nodeId }) : leaf.nodeId ?? undefined}
+            title={labelTitle}
             onClick={() => leaf.nodeId && void traceField(leaf.nodeId, leaf.scope ?? (state.live ? null : undefined))}
           >
             <span className={`tree-name ${leaf.nodeId && keyFields.has(leaf.nodeId) ? "key-field" : ""}`}>{leaf.label}</span>
-            {leaf.value !== undefined && <span className="tree-value">{formatValue(leaf.value)}</span>}
+            {value !== null && (
+              <span className="tree-value" title={description ? `${description}\n${value}` : value}>
+                {value}
+              </span>
+            )}
           </button>
         </div>
-        {leaf.children.length > 0 && isOpen(leaf) && <ul>{leaf.children.map(renderLeaf)}</ul>}
+        {children.length > 0 && isOpen(leaf) && <ul>{children.map(renderLeaf)}</ul>}
       </li>
     );
   };
@@ -130,10 +158,21 @@ export function ResponseTree({ controller }: { controller: XRayController }) {
     <section className="pane pane-left">
       <div className="pane-header">
         <h2>{t("tree.title")}</h2>
-        <span className="pane-sub">{state.live ? `${state.live.entityType} ${state.live.entityKey}` : t("tree.static")}</span>
+        <span className="pane-sub" title={state.live ? `${state.live.entityType} ${state.live.entityKey}` : t("tree.static")}>
+          {state.live ? `${state.live.entityType} ${state.live.entityKey}` : t("tree.static")}
+        </span>
+      </div>
+      <div className="pane-tools">
+        <MagnifyingGlass size={13} weight="bold" aria-hidden />
+        <input className="tree-filter" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("tree.filter")} aria-label={t("tree.filter")} spellCheck={false} />
+        {filter && (
+          <button type="button" className="btn ghost small icon" onClick={() => setFilter("")} aria-label={t("tree.filterClear")} title={t("tree.filterClear")}>
+            <X size={12} weight="bold" />
+          </button>
+        )}
       </div>
       <div className="pane-body">
-        {tree.length === 0 ? <p className="muted">{t("tree.loading")}</p> : <ul className="tree">{tree.map(renderLeaf)}</ul>}
+        {tree.length === 0 ? <p className="muted">{t("tree.loading")}</p> : roots.length === 0 ? <p className="muted empty">{t("tree.noMatch", { q: filter.trim() })}</p> : <ul className="tree">{roots.map(renderLeaf)}</ul>}
       </div>
       <div className="pane-footer">{t("tree.footer")}</div>
     </section>

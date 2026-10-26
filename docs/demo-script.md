@@ -49,27 +49,28 @@ Header: pick order `PICK0843858` → **Trace**, material `T12288`. The Response 
 
 - `availableQuantity = 0`, `pickQuantity = 18`, `onHandQuantity = 0`, `allocatedQuantity = 18`, `WMS_Enabled = "1"`.
 
-Talking point: Pick = 18, OnHand = 0, Allocated = 18, but Available comes from a *different* source (the UDF branch), which is why it is 0 while the others are not.
+Talking point: Pick = 18, OnHand = 0 (**already picked**), Allocated = 18 (**remaining to pick**), but Available comes from a *different* source (the UDF → EBBA `INVENTORY2`), which is why it is 0 while the others are not.
 
 **Replay flow** (graph toolbar, ▶): the traced path goes dark, the call runs down the execution path node by node with a pulse on each edge, then the value comes back up the lineage layer by layer and lands in `availableQuantity` with its `T12288: 0` chip (about 10 s). It replays whatever is unfolded, so unfold the function first to watch the value rise from `INVENTORY2`. Folding, a new trace or a resize cancels it.
 
 Deep link: `/?order=PICK0843858&field=availableQuantity&scope=T12288` — add `&replay=1` to replay as soon as the trace is on screen (recording), `&replay=hold` to darken the path and wait for the button (first frame of the flow).
 
-## Scene 4 — Inside the UDF: a hypothesis, not a guess
+## Scene 4 — Inside the UDF: EBBA inventory returned 0
 
 Inspector → **Investigate**. The rule-based investigator (or the LLM, validated the same way) returns:
 
-- Verdict **Need More Evidence**, confidence 80 %, 21 facts, 63 cited evidence ids, 1 unknown
-- Known facts, each with evidence chips (`ev-068`, edge ids, node ids, lineage ids) — click a chip to jump to the node
+- Verdict **Known**; summary includes the cause: `AF_Pick_GetAvailableQuantity` queried EBBA inventory for this material and returned 0
+- Known facts, each with evidence chips (runtime `ev-*`, edge ids, node ids, lineage ids) — click a chip to jump to the node
 - Fact: *Active branch: `@WMS_Enabled = 1` …* (derived from the live parameter value)
-- Facts inside the function: `AF_Pick_GetAvailableQuantity = IF EXISTS (... 'LVP' ...) RETURN 1000 ELSE RETURN ISNULL(SUM(QuantityOnHand), 0)`; *Branch `EXISTS (...)` returns the constant 1000*; *Which branch applies depends on row data: `DET2_ILG_ProductDeliveryMethod.DeliveryMethod`, … these rows were not captured in the trace*; the local variable `@UseQuantityAllocated = 0 -> 1 WHEN EXISTS (... IN ('LVS_MPA','SLFR_MPA','LVS_LINE','SLFR_LINE') ...)`
-- Hypothesis (unverified): *`AF_Pick_GetAvailableQuantity` equals the ISNULL fallback 0 of `ISNULL(SUM(QuantityOnHand), 0)`; the inner value was probably NULL (no matching row …)* — with a read-only suggested check in TEST
-- Unknown (runtime detail, not a static gap): the function was evaluated inside SQL Server; its return value per material and the INVENTORY2 rows were not captured
-- Next step: query `DET2_ILG_ProductDeliveryMethod`, `PRODUCT`, `PRODUCT_GROUP` for this material in TEST (read-only) to determine the active branch
+- Fact: *Function `AF_Pick_GetAvailableQuantity` returned `T12288.AF_Pick_GetAvailableQuantity = 0`* (from `functionResults` in the fixture; the graph node shows the `T12288: 0` chip)
+- Fact: material row context — `pickQuantity = 18`; `onHandQuantity = 0` (**already picked**); `allocatedQuantity = 18` (**remaining to pick**); `storageBin = A-01-02,A-01-05`
+- Facts inside the function: `AF_Pick_GetAvailableQuantity = IF EXISTS (... 'LVP' ...) RETURN 1000 ELSE RETURN ISNULL(SUM(QuantityOnHand), 0)`; *Branch `EXISTS (...)` returns the constant 1000*; the local variable `@UseQuantityAllocated = 0 -> 1 WHEN EXISTS (... IN ('LVS_MPA','SLFR_MPA','LVS_LINE','SLFR_LINE') ...)`
+- Hypothesis (**supported**): *`AF_Pick_GetAvailableQuantity` returned 0, matching the ISNULL fallback of `ISNULL(SUM(QuantityOnHand), 0)`: EBBA inventory (`INVENTORY2`) has no on-hand quantity for this material at the pick storage bin* — no suggested TEST check
+- Unknowns: none on this path
 
-Talking point: the AI does not guess. The static lineage is complete down to the base tables (**Explain** on the same field is *Known*, 90 %); the *value* 0 is explained by a hypothesis, so **Investigate** says Need More Evidence and tells you which read-only check settles it. Every sentence it asserts is bound to an evidence id.
+Talking point: the AI does not guess. The fixture now captures the UDF return per material, so **Investigate** can conclude *Known* and state the business cause. `onHandQuantity` / `allocatedQuantity` on the pick row are pick progress (already picked / remaining), not EBBA warehouse stock — Available comes from a different source.
 
-Contrast: material `T55102` shows `availableQuantity = 1000`; Investigate for `scope=T55102` yields the hypothesis *equals the constant 1000 returned when EXISTS (... DeliveryMethod = 'LVP' ...)*. `T40917` (860) matches neither a constant nor an ISNULL default: verdict Known.
+Contrast: material `T55102` shows `availableQuantity = 1000`; Investigate for `scope=T55102` yields a **supported** hypothesis confirming the LVP constant branch. `T40917` (860) matches neither a constant nor an ISNULL default: verdict Known, no hypothesis.
 
 Language: flip EN / 中文 here if you want to show it. The explanation is re-requested in the other language; the verdict, confidence, evidence ids and values do not change, only the sentences do.
 

@@ -46,10 +46,12 @@ public sealed class AiInvestigatorTests : IClassFixture<AssembledGraphFixture>
         Assert.Contains(chinese.KnownFacts, f => f.Text.Contains("观测值", StringComparison.Ordinal) && f.Text.Contains("availableQuantity = 0", StringComparison.Ordinal));
         Assert.Contains(chinese.KnownFacts, f => f.Text.Contains("生效的分支", StringComparison.Ordinal) && f.Text.Contains("WMS_Enabled = 1", StringComparison.Ordinal));
         Assert.Contains(chinese.KnownFacts, f => f.Text.Contains("返回常量 1000", StringComparison.Ordinal) && f.Text.Contains("AF_Pick_GetAvailableQuantity", StringComparison.Ordinal));
-        Assert.Contains(chinese.KnownFacts, f => f.Text.Contains("取决于行数据", StringComparison.Ordinal) && f.Text.Contains("DET2_ILG_ProductDeliveryMethod.DeliveryMethod", StringComparison.Ordinal));
-        Assert.Contains("需要更多证据：观测值的解释仍是未验证的假设", chinese.Summary, StringComparison.Ordinal);
-        Assert.Contains(chinese.Hypotheses, h => h.Text.Contains("ISNULL 的回退值 0", StringComparison.Ordinal) && h.Text.Contains("ISNULL(SUM(QuantityOnHand), 0)", StringComparison.Ordinal));
-        Assert.Contains(chinese.NextSteps, s => s.Contains("TEST 环境只读查询", StringComparison.Ordinal) && s.Contains("dbo.DET2_ILG_ProductDeliveryMethod", StringComparison.Ordinal));
+        Assert.Contains(chinese.KnownFacts, f => f.Text.Contains("函数 AF_Pick_GetAvailableQuantity 返回", StringComparison.Ordinal) && f.Text.Contains('0'));
+        Assert.Contains(chinese.KnownFacts, f => f.Text.Contains("已拣选数量", StringComparison.Ordinal) && f.Text.Contains("剩余待拣选数量", StringComparison.Ordinal));
+        Assert.Contains("每一跳都有已扫描代码或运行时证据支撑", chinese.Summary, StringComparison.Ordinal);
+        Assert.Contains("0 的原因：AF_Pick_GetAvailableQuantity", chinese.Summary, StringComparison.Ordinal);
+        Assert.Contains(chinese.Hypotheses, h => h.Status == HypothesisStatus.Supported && h.Text.Contains("ISNULL(SUM(QuantityOnHand), 0)", StringComparison.Ordinal) && h.Text.Contains("EBBA 库存", StringComparison.Ordinal));
+        Assert.DoesNotContain(chinese.NextSteps, s => s.Contains("TEST 环境只读查询", StringComparison.Ordinal) && s.Contains("dbo.DET2_ILG_ProductDeliveryMethod", StringComparison.Ordinal));
         Assert.All(chinese.Steps, s => Assert.DoesNotContain("Resolved focus", s, StringComparison.Ordinal));
 
         // Unsupported tags fall back to English rather than failing.
@@ -83,13 +85,14 @@ public sealed class AiInvestigatorTests : IClassFixture<AssembledGraphFixture>
         Assert.Contains(explanation.KnownFacts, f => f.Text.Contains("Base table columns", StringComparison.Ordinal) && f.Text.Contains("dbo.INVENTORY2.QuantityOnHand", StringComparison.Ordinal));
         Assert.Contains(explanation.KnownFacts, f => f.Text.Contains("availableQuantity = 0", StringComparison.Ordinal));
 
-        // The runtime note (values computed inside SQL Server were not captured) is reported but does not make the lineage unknown.
-        Assert.Contains(explanation.Unknowns, u => u.Contains("AF_Pick_GetAvailableQuantity was evaluated inside SQL Server", StringComparison.Ordinal));
-        Assert.Contains("1 runtime detail(s)", explanation.Summary, StringComparison.Ordinal);
+        // The function return is now in the fixture; remaining runtime notes (if any) do not make the lineage unknown.
+        Assert.DoesNotContain(explanation.Unknowns, u => u.Contains("AF_Pick_GetAvailableQuantity was evaluated inside SQL Server", StringComparison.Ordinal));
+        Assert.Contains(explanation.KnownFacts, f => f.Text.Contains("Function AF_Pick_GetAvailableQuantity returned", StringComparison.Ordinal));
+        Assert.Contains("Cause of 0: AF_Pick_GetAvailableQuantity", explanation.Summary, StringComparison.Ordinal);
         Assert.Contains(explanation.NextSteps, s => s.Contains("read-only", StringComparison.Ordinal) && s.Contains("dbo.DET2_ILG_ProductDeliveryMethod", StringComparison.Ordinal));
         Assert.DoesNotContain(explanation.NextSteps, s => s.Contains("read_system_parameter('DeliveryMethod')", StringComparison.Ordinal));
 
-        Assert.InRange(explanation.Confidence, 0.85, 0.95);
+        Assert.InRange(explanation.Confidence, 0.9, 0.95);
         Assert.Equal(RuleBasedInvestigator.ProviderName, explanation.Audit.Provider);
         Assert.NotEmpty(explanation.Audit.EvidenceIds);
         Assert.Equal(_options.PromptVersion, explanation.Audit.PromptVersion);
@@ -97,28 +100,30 @@ public sealed class AiInvestigatorTests : IClassFixture<AssembledGraphFixture>
     }
 
     [Fact]
-    public async Task Investigate_explains_the_observed_value_with_a_hypothesis_and_needs_more_evidence()
+    public async Task Investigate_explains_the_observed_value_with_a_supported_hypothesis_when_the_function_return_is_captured()
     {
         var investigator = new RuleBasedInvestigator(_options);
         var zero = await investigator.InvestigateAsync(Bundle("availableQuantity", "Why is Available Quantity 0?"));
 
-        // 0 matches the ISNULL default of the function's own RETURN expression, not of the outer ISNULL(udf(...), 0):
-        // a scanned function is not accused of returning NULL from the outside.
-        Assert.Equal(ExplainVerdict.NeedMoreEvidence, zero.Verdict);
+        // 0 matches the ISNULL default of the function's own RETURN expression; the captured UDF return confirms it.
+        Assert.Equal(ExplainVerdict.Known, zero.Verdict);
         var hypothesis = Assert.Single(zero.Hypotheses);
-        Assert.StartsWith("AF_Pick_GetAvailableQuantity equals the ISNULL fallback 0 of `ISNULL(SUM(QuantityOnHand), 0)`", hypothesis.Text, StringComparison.Ordinal);
-        Assert.Equal(HypothesisStatus.Unverified, hypothesis.Status);
-        Assert.Contains("read-only", hypothesis.SuggestedCheck, StringComparison.Ordinal);
+        Assert.Contains("returned 0, matching the ISNULL fallback of `ISNULL(SUM(QuantityOnHand), 0)`", hypothesis.Text, StringComparison.Ordinal);
+        Assert.Contains("EBBA inventory", hypothesis.Text, StringComparison.Ordinal);
+        Assert.Equal(HypothesisStatus.Supported, hypothesis.Status);
+        Assert.Null(hypothesis.SuggestedCheck);
         Assert.NotEmpty(hypothesis.EvidenceIds!);
-        Assert.Contains("unverified hypothesis", zero.Summary, StringComparison.Ordinal);
-        Assert.InRange(zero.Confidence, 0.7, 0.85);
+        Assert.Contains("Cause of 0: AF_Pick_GetAvailableQuantity", zero.Summary, StringComparison.Ordinal);
+        Assert.Contains(zero.KnownFacts, f => f.Text.Contains("already picked", StringComparison.Ordinal) && f.Text.Contains("remaining to pick", StringComparison.Ordinal));
+        Assert.InRange(zero.Confidence, 0.9, 0.95);
 
-        // 1000 is the constant of the LVP branch.
+        // 1000 is the constant of the LVP branch, confirmed by the captured return.
         var thousand = await investigator.InvestigateAsync(Bundle("availableQuantity", "Why 1000?", scope: "T55102"));
-        Assert.Equal(ExplainVerdict.NeedMoreEvidence, thousand.Verdict);
+        Assert.Equal(ExplainVerdict.Known, thousand.Verdict);
         var constant = Assert.Single(thousand.Hypotheses);
-        Assert.Contains("equals the constant 1000 returned when EXISTS (DET2_ILG_ProductDeliveryMethod WHERE DIP.DeliveryMethod = 'LVP' ...)", constant.Text, StringComparison.Ordinal);
-        Assert.Contains("DeliveryMethod = 'LVP'", constant.SuggestedCheck, StringComparison.Ordinal);
+        Assert.Equal(HypothesisStatus.Supported, constant.Status);
+        Assert.Contains("returned 1000, confirming the constant branch when EXISTS (DET2_ILG_ProductDeliveryMethod WHERE DIP.DeliveryMethod = 'LVP' ...)", constant.Text, StringComparison.Ordinal);
+        Assert.Null(constant.SuggestedCheck);
 
         // 860 matches neither a constant nor an ISNULL default: the evidenced lineage stands on its own.
         var regular = await investigator.InvestigateAsync(Bundle("availableQuantity", "Why 860?", scope: "T40917"));
@@ -146,7 +151,7 @@ public sealed class AiInvestigatorTests : IClassFixture<AssembledGraphFixture>
     public async Task Investigate_adds_the_isnull_fallback_hypothesis_only_when_the_observed_value_equals_the_default()
     {
         var explanation = await new RuleBasedInvestigator(_options).InvestigateAsync(Bundle("availableQuantity", "Why is availableQuantity 0 for T12288?"));
-        Assert.Contains(explanation.Hypotheses, h => h.Text.Contains("ISNULL fallback 0", StringComparison.Ordinal));
+        Assert.Contains(explanation.Hypotheses, h => h.Text.Contains("ISNULL fallback", StringComparison.Ordinal) && h.Text.Contains("ISNULL(SUM(QuantityOnHand), 0)", StringComparison.Ordinal));
         Assert.DoesNotContain(explanation.Hypotheses, h => h.Text.Contains("ISNULL(dbo.AF_Pick_GetAvailableQuantity", StringComparison.Ordinal));
 
         var other = await new RuleBasedInvestigator(_options).InvestigateAsync(Bundle("availableQuantity", "Why 1000?", scope: "T55102"));
@@ -167,12 +172,12 @@ public sealed class AiInvestigatorTests : IClassFixture<AssembledGraphFixture>
         Assert.Single(caseExpr.Notes, n => n.StartsWith("@UseQuantityAllocated = 0 -> 1 WHEN EXISTS", StringComparison.Ordinal));
 
         Assert.Empty(bundle.Unknowns);
-        Assert.Single(bundle.RuntimeNotes, n => n.Contains("AF_Pick_GetAvailableQuantity", StringComparison.Ordinal));
+        Assert.DoesNotContain(bundle.RuntimeNotes, n => n.Contains("AF_Pick_GetAvailableQuantity", StringComparison.Ordinal));
+        Assert.Contains(udf.RuntimeValueTexts, t => t.Contains('0'));
 
         var prompt = MesXray.AI.Prompts.PromptLibrary.User(bundle, investigate: true);
         Assert.Contains("- constant 1000 when EXISTS (DET2_ILG_ProductDeliveryMethod", prompt, StringComparison.Ordinal);
         Assert.Contains("- note: @UseQuantityAllocated = 0 -> 1 WHEN EXISTS", prompt, StringComparison.Ordinal);
-        Assert.Contains("# Runtime details not captured", prompt, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -252,16 +257,18 @@ public sealed class AiInvestigatorTests : IClassFixture<AssembledGraphFixture>
     }
 
     [Fact]
-    public void Validator_keeps_known_when_only_runtime_notes_remain_but_not_when_hypotheses_do()
+    public void Validator_keeps_known_when_only_runtime_notes_or_supported_hypotheses_remain()
     {
         var bundle = Bundle("availableQuantity");
-        Assert.NotEmpty(bundle.RuntimeNotes);
         var audit = new AiAudit("test", "m", "p", DateTimeOffset.UtcNow, []);
         var grounded = new Explanation { Summary = "s", KnownFacts = [new KnownFact("supported", [bundle.Items[0].Id])], Unknowns = bundle.RuntimeNotes, Confidence = 0.9, Verdict = ExplainVerdict.Known, Audit = audit };
 
         var known = new EvidenceBindingValidator().Validate(grounded, bundle).Explanation;
         Assert.Equal(ExplainVerdict.Known, known.Verdict);
         Assert.Equal(bundle.RuntimeNotes, known.Unknowns);
+
+        var withSupported = new EvidenceBindingValidator().Validate(grounded with { Hypotheses = [new Hypothesis("confirmed", HypothesisStatus.Supported)] }, bundle).Explanation;
+        Assert.Equal(ExplainVerdict.Known, withSupported.Verdict);
 
         var withHypothesis = new EvidenceBindingValidator().Validate(grounded with { Hypotheses = [new Hypothesis("maybe", HypothesisStatus.Unverified, "check")] }, bundle).Explanation;
         Assert.Equal(ExplainVerdict.NeedMoreEvidence, withHypothesis.Verdict);

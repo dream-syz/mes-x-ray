@@ -17,7 +17,7 @@
 
   --ink: #e7eaf0;
   --ink-2: #b9c1ce;
-  --muted: #8a94a6;
+  --muted: #949eb0;
 
   --accent: #3fc1e8;
   --accent-ink: #061218;
@@ -97,6 +97,27 @@ h3 {
 
 svg {
   flex-shrink: 0;
+}
+
+kbd {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+  padding: 0 5px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  color: var(--ink-2);
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+
+/* While a pane is being dragged nothing else may react to the pointer. */
+body.is-resizing,
+body.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 /* ---------------------------------------------------------------- motion primitives */
@@ -187,16 +208,65 @@ svg {
 .app {
   height: 100%;
   display: grid;
-  grid-template-rows: 56px minmax(0, 1fr) 28px;
+  /* header · error banner (collapses when there is none) · workspace · status bar; rows are assigned explicitly so
+     that the workspace stays in its track whether or not the banner is rendered */
+  grid-template-rows: 56px auto minmax(0, 1fr) 28px;
 }
 
 .header {
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 28px;
   padding: 0 16px;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
+}
+
+/* Errors sit right under the header where the eye is, not in the footer. */
+.alert-banner {
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px;
+  background: var(--danger-soft);
+  border-bottom: 1px solid rgba(239, 123, 123, 0.35);
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.4;
+  animation: fade-up 200ms var(--ease) both;
+}
+
+.alert-banner svg {
+  color: var(--danger);
+}
+
+.alert-banner .alert-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.header-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tool-btn {
+  padding: 5px 8px;
+  gap: 7px;
+}
+
+.tool-btn kbd {
+  font-size: 10px;
+}
+
+@media (max-width: 1400px) {
+  .tool-btn kbd {
+    display: none;
+  }
 }
 
 .brand {
@@ -422,10 +492,48 @@ svg {
 /* ---------------------------------------------------------------- panes */
 
 .workspace {
+  grid-row: 3;
+  position: relative;
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr) 440px;
+  /* side panes are user-sized (PaneResizer); the grab bars carry the dividing lines */
+  grid-template-columns: var(--left-w, 280px) 5px minmax(0, 1fr) 5px var(--right-w, 440px);
   min-height: 0;
   background: var(--bg);
+}
+
+/* Indeterminate strip along the top of the workspace while any request is in flight. */
+.busy-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.busy-bar::before {
+  content: "";
+  display: block;
+  width: 33%;
+  height: 100%;
+  background: var(--accent);
+  animation: indeterminate 1.2s var(--ease) infinite;
+}
+
+.pane-resizer {
+  position: relative;
+  cursor: col-resize;
+  background: linear-gradient(to right, transparent 2px, var(--line) 2px, var(--line) 3px, transparent 3px);
+  transition: background 160ms var(--ease);
+  z-index: 2;
+}
+
+.pane-resizer:hover,
+.pane-resizer:focus-visible {
+  background: linear-gradient(to right, transparent 1px, var(--accent-line) 1px, var(--accent-line) 4px, transparent 4px);
+  outline: none;
 }
 
 .pane {
@@ -435,11 +543,6 @@ svg {
   min-width: 0;
   overflow: hidden;
   background: var(--surface);
-  border-right: 1px solid var(--line);
-}
-
-.pane-right {
-  border-right: 0;
 }
 
 .pane-center {
@@ -471,6 +574,43 @@ svg {
   min-width: 0;
 }
 
+/* Tool strip under a pane header (the response-tree filter). */
+.pane-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 6px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.pane-tools input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+}
+
+.pane-tools input::placeholder {
+  color: var(--muted);
+}
+
+.pane-tools input:focus-visible {
+  outline: none;
+  background: var(--surface-2);
+}
+
+.btn.icon {
+  padding: 3px;
+  min-width: 22px;
+  min-height: 22px;
+}
+
 .pane-body {
   flex: 1;
   overflow: auto;
@@ -498,8 +638,387 @@ svg {
   line-height: 1.5;
 }
 
+.empty.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.empty.loading::after {
+  content: "\2026";
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--accent);
+  animation: spin 800ms linear infinite;
+}
+
 .tab-panel {
   animation: fade-up 240ms var(--ease) both;
+}
+
+/* ---------------------------------------------------------------- start guide (inspector, nothing selected) */
+
+.start-guide {
+  animation: fade-up 240ms var(--ease) both;
+  padding-top: 4px;
+}
+
+.start-guide h3 {
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+
+.guide-intro {
+  margin: 8px 0 14px;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+
+.guide-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: guide;
+  display: grid;
+  gap: 10px;
+}
+
+.guide-steps li {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px 10px 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  line-height: 1.5;
+}
+
+.guide-steps li::before {
+  counter-increment: guide;
+  content: counter(guide);
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-sm);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.guide-steps b {
+  font-weight: 600;
+}
+
+.guide-steps span {
+  color: var(--ink-2);
+}
+
+.guide-actions,
+.guide-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.guide-actions .btn kbd {
+  margin-left: 2px;
+}
+
+/* ---------------------------------------------------------------- dialogs (search palette, help) */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: start center;
+  padding-top: 11vh;
+  background: rgba(4, 6, 10, 0.62);
+  backdrop-filter: blur(2px);
+  animation: fade-up 160ms var(--ease) both;
+}
+
+.dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-height: 76vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  box-shadow: 0 24px 80px -20px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(63, 193, 232, 0.08);
+  outline: none;
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 12px 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dialog-header h3 {
+  font-size: 14.5px;
+}
+
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.search-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.search-input input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 15px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+}
+
+.search-input input::placeholder {
+  color: var(--muted);
+}
+
+.search-input input:focus-visible {
+  outline: none;
+}
+
+.search-body {
+  min-height: 120px;
+  overflow: auto;
+}
+
+.search-note {
+  margin: 0;
+  padding: 28px 18px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.search-results {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+}
+
+.search-hit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background 100ms var(--ease);
+}
+
+.search-hit.active {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.search-hit-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.search-hit-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.search-hit-name {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-hit-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.search-hit-meta .status-chip {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.search-hit-id {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-hit-actions {
+  display: inline-flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 120ms var(--ease);
+}
+
+.search-hit.active .search-hit-actions,
+.search-hit:hover .search-hit-actions,
+.search-hit:focus-within .search-hit-actions {
+  opacity: 1;
+}
+
+.help-dialog {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.help-body {
+  overflow: auto;
+  padding: 6px 18px 14px;
+  display: grid;
+  gap: 16px;
+}
+
+.help-body h4 {
+  margin: 12px 0 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.help-flow {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: flow;
+  display: grid;
+  gap: 6px;
+}
+
+.help-flow li {
+  position: relative;
+  padding-left: 26px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.help-flow li::before {
+  counter-increment: flow;
+  content: counter(flow, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: 3px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--accent);
+}
+
+.help-legend {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+.help-legend li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.swatch {
+  flex: none;
+  width: 22px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-3);
+}
+
+.swatch-accent {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 10px -2px var(--accent-glow);
+}
+
+.swatch-warn {
+  border: 1px dashed rgba(242, 181, 69, 0.8);
+  background: var(--warn-soft);
+}
+
+.swatch-danger {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.help-keys {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  align-items: center;
+}
+
+.help-keys div {
+  display: contents;
+}
+
+.help-keys dt {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.help-keys dd {
+  margin: 0;
+  color: var(--ink-2);
 }
 
 .chip-warn {
@@ -529,7 +1048,7 @@ svg {
   display: flex;
   align-items: center;
   gap: 2px;
-  min-height: 26px;
+  min-height: 28px;
   border-radius: var(--r-sm);
   transition: background 120ms var(--ease);
 }
@@ -589,7 +1108,7 @@ svg {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 120px;
+  max-width: 45%;
 }
 
 .tree-row.selected .tree-value {
@@ -944,6 +1463,18 @@ svg {
   white-space: nowrap;
 }
 
+.replay-toggle.is-ready {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.replay-toggle.is-ready:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
 .replay-toggle.is-running {
   color: var(--accent);
 }
@@ -1015,6 +1546,39 @@ svg {
 
 .actions .btn {
   padding: 6px 10px;
+}
+
+/* The node the buttons act on, in words: layer, type and name (the id stays in the pane header). */
+.selection-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 14px 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  min-height: 24px;
+}
+
+.selection-line b {
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.selection-line code {
+  color: var(--ink-2);
+  word-break: break-all;
+}
+
+.action-note {
+  margin: 0 14px 8px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--warn);
+  background: var(--warn-soft);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-2);
 }
 
 .question {
@@ -1119,9 +1683,23 @@ svg {
   word-break: break-word;
 }
 
+.node-id-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .node-id {
   word-break: break-all;
   color: var(--muted);
+}
+
+.copy-id {
+  flex: none;
+}
+
+.copy-id.ok {
+  color: var(--accent);
 }
 
 .description {
@@ -1282,7 +1860,7 @@ svg {
 
 .hop-type {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
@@ -1517,7 +2095,7 @@ svg {
   border-radius: var(--r-sm);
   padding: 0 5px;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 10.5px;
   color: var(--ink-2);
   transition: border-color 120ms var(--ease), color 120ms var(--ease);
 }
@@ -1558,7 +2136,7 @@ svg {
 
 .kind {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
@@ -1568,6 +2146,7 @@ svg {
 /* ---------------------------------------------------------------- status bar */
 
 .statusbar {
+  grid-row: 4;
   display: flex;
   align-items: center;
   gap: 18px;
@@ -1644,8 +2223,11 @@ svg {
     overflow: auto;
   }
 
+  .pane-resizer {
+    display: none;
+  }
+
   .pane {
-    border-right: 0;
     border-bottom: 1px solid var(--line);
   }
 
@@ -1657,7 +2239,7 @@ svg {
   }
 
   .app {
-    grid-template-rows: auto minmax(0, 1fr) 28px;
+    grid-template-rows: auto auto minmax(0, 1fr) 28px;
   }
 
   .brand {

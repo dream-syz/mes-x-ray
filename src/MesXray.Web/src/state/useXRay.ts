@@ -14,6 +14,11 @@ import { detectLang, persistLang, translate, type Lang, type MessageKey, type Va
 
 export type ViewMode = "architecture" | "trace";
 export type InspectorTab = "details" | "trace" | "impact" | "explain";
+/** Modal dialogs: the node search palette and the help sheet. */
+export type Dialog = "search" | "help";
+
+/** A notice in the status bar fades by itself; errors stay until dismissed or until the next successful request. */
+const NOTICE_MS = 8000;
 
 /** What produced the current explanation, so it can be re-requested in another language. */
 export interface ExplainRequest {
@@ -42,6 +47,7 @@ export interface XRayState {
   notice: string | null;
   /** Deep link `replay=1` / `replay=hold`: replay the flow of every trace as it arrives (or arm it and wait for the button). */
   replayOnLoad: ReplayOnLoad | null;
+  dialog: Dialog | null;
 }
 
 export type ReplayOnLoad = "auto" | "hold";
@@ -60,7 +66,8 @@ type Action =
   | { type: "impact"; impact: ImpactResult | null }
   | { type: "explanation"; explanation: ExplainResponse | null; request: ExplainRequest | null; keepTab?: boolean }
   | { type: "tab"; tab: InspectorTab }
-  | { type: "replayOnLoad"; mode: ReplayOnLoad | null };
+  | { type: "replayOnLoad"; mode: ReplayOnLoad | null }
+  | { type: "dialog"; dialog: Dialog | null };
 
 const initial: XRayState = {
   lang: "en",
@@ -81,6 +88,7 @@ const initial: XRayState = {
   error: null,
   notice: null,
   replayOnLoad: null,
+  dialog: null,
 };
 
 function reduce(state: XRayState, action: Action): XRayState {
@@ -113,13 +121,21 @@ function reduce(state: XRayState, action: Action): XRayState {
       return { ...state, tab: action.tab };
     case "replayOnLoad":
       return { ...state, replayOnLoad: action.mode };
+    case "dialog":
+      return { ...state, dialog: action.dialog };
     default:
       return state;
   }
 }
 
-const describe = (error: unknown): string => {
-  if (error instanceof ApiError) return `${error.status}: ${error.message}`;
+/** Error text for the banner: problem details in the user's words where the cause is known, the raw message otherwise. */
+const describe = (error: unknown, t: (key: MessageKey, vars?: Vars) => string): string => {
+  if (error instanceof ApiError) {
+    if (error.status === 403) return t("error.denied", { detail: error.message });
+    if (error.status === 404) return t("error.notFound", { detail: error.message });
+    if (error.status === 400 && /ambiguous/i.test(error.message)) return t("error.fieldAmbiguous", { detail: error.message });
+    return `${error.status}: ${error.message}`;
+  }
   if (error instanceof Error) return error.message;
   return String(error);
 };
@@ -164,18 +180,41 @@ export function useXRay(caseId = "pick-order-details") {
   useEffect(() => persistLang(state.lang, { updateUrl: userChangedLang.current }), [state.lang]);
   const t = useCallback((key: MessageKey, vars?: Vars) => translate(langRef.current, key, vars), []);
 
-  const run = useCallback(async <T,>(key: keyof XRayState["busy"], work: () => Promise<T>): Promise<T | undefined> => {
-    dispatch({ type: "busy", key, value: true });
-    dispatch({ type: "error", message: null });
-    try {
-      return await work();
-    } catch (error) {
-      dispatch({ type: "error", message: describe(error) });
-      return undefined;
-    } finally {
-      dispatch({ type: "busy", key, value: false });
-    }
-  }, []);
+  const run = useCallback(
+    async <T,>(key: keyof XRayState["busy"], work: () => Promise<T>): Promise<T | undefined> => {
+      dispatch({ type: "busy", key, value: true });
+      dispatch({ type: "error", message: null });
+      try {
+        return await work();
+      } catch (error) {
+        dispatch({ type: "error", message: describe(error, t) });
+        return undefined;
+      } finally {
+        dispatch({ type: "busy", key, value: false });
+      }
+    },
+    [t],
+  );
+
+  // The overview is read through a ref by callbacks that must stay stable (runScenario runs from the boot effect).
+  const overviewRef = useRef(state.overview);
+  overviewRef.current = state.overview;
+
+  /** Live trace of a pick order; an unknown order is reported together with the orders the fixture does know. */
+  const loadPickOrder = useCallback(
+    async (orderNo: string, materialNo?: string | null): Promise<RuntimeTrace> => {
+      try {
+        return await api.livePickOrder(orderNo, materialNo);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+          const orders = Array.from(new Set((overviewRef.current?.traces ?? []).map((trace) => trace.entityKey)));
+          throw new Error(t("error.orderNotFound", { order: orderNo, orders: orders.length > 0 ? orders.join(", ") : "-" }));
+        }
+        throw error;
+      }
+    },
+    [t],
+  );
 
   /**
    * Runs a whole demo step in one go (live trace -> field trace -> explain) without depending on intermediate
@@ -186,7 +225,7 @@ export function useXRay(caseId = "pick-order-details") {
       run("live", async () => {
         let live: RuntimeTrace | null = null;
         if (scenario.order) {
-          live = await api.livePickOrder(scenario.order, null);
+          live = await loadPickOrder(scenario.order, null);
           dispatch({ type: "live", trace: live });
         }
         const scope = live ? scenario.scope ?? null : null;
@@ -214,7 +253,7 @@ export function useXRay(caseId = "pick-order-details") {
           dispatch({ type: "tab", tab: "impact" });
         }
       }),
-    [run],
+    [run, loadPickOrder],
   );
 
   // Boot: case overview, architecture view and the static list of response fields, then any deep-linked scenario.
@@ -282,7 +321,7 @@ export function useXRay(caseId = "pick-order-details") {
   const startLiveTrace = useCallback(
     (orderNo: string, materialNo?: string | null) =>
       run("live", async () => {
-        const trace = await api.livePickOrder(orderNo, materialNo);
+        const trace = await loadPickOrder(orderNo, materialNo);
         dispatch({ type: "live", trace });
         const scopes = Array.from(new Set(trace.evidence.map((e) => e.scope).filter((s): s is string => !!s)));
         const scope = materialNo && scopes.includes(materialNo) ? materialNo : state.scope && scopes.includes(state.scope) ? state.scope : scopes[0] ?? null;
@@ -290,13 +329,20 @@ export function useXRay(caseId = "pick-order-details") {
         dispatch({ type: "notice", message: t("notice.liveLoaded", { traceId: trace.traceId, env: trace.environment, n: trace.evidence.length }) });
         return trace;
       }),
-    [run, state.scope, t],
+    [run, loadPickOrder, state.scope, t],
   );
 
   const stopLiveTrace = useCallback(() => {
     dispatch({ type: "live", trace: null });
     dispatch({ type: "notice", message: t("notice.liveCleared") });
   }, [t]);
+
+  // Notices are confirmations, not state: they leave the status bar by themselves.
+  useEffect(() => {
+    if (!state.notice) return;
+    const handle = window.setTimeout(() => dispatch({ type: "notice", message: null }), NOTICE_MS);
+    return () => window.clearTimeout(handle);
+  }, [state.notice]);
 
   /** Switches the UI language and re-requests the open explanation so its sentences follow (ids and evidence are unchanged). */
   const setLang = useCallback(
@@ -326,13 +372,39 @@ export function useXRay(caseId = "pick-order-details") {
   const setTab = useCallback((tab: InspectorTab) => dispatch({ type: "tab", tab }), []);
   const setScope = useCallback((scope: string | null) => dispatch({ type: "scope", scope }), []);
   const dismissError = useCallback(() => dispatch({ type: "error", message: null }), []);
+  const openDialog = useCallback((dialog: Dialog) => dispatch({ type: "dialog", dialog }), []);
+  const closeDialog = useCallback(() => dispatch({ type: "dialog", dialog: null }), []);
 
   const scopes = useMemo(() => {
     if (!state.live) return [];
     return Array.from(new Set(state.live.evidence.map((e) => e.scope).filter((s): s is string => !!s))).sort();
   }, [state.live]);
 
-  return { state, scopes, selectNode, traceField, analyzeImpact, explain, startLiveTrace, stopLiveTrace, runScenario, setLang, setMode, setTab, setScope, dismissError };
+  /** Known pick orders of the loaded case (the fixture's runtime captures), for suggestions and error messages. */
+  const knownOrders = useMemo(() => Array.from(new Set((state.overview?.traces ?? []).map((trace) => trace.entityKey))), [state.overview]);
+
+  const busyAny = Object.values(state.busy).some(Boolean);
+
+  return {
+    state,
+    scopes,
+    knownOrders,
+    busyAny,
+    selectNode,
+    traceField,
+    analyzeImpact,
+    explain,
+    startLiveTrace,
+    stopLiveTrace,
+    runScenario,
+    setLang,
+    setMode,
+    setTab,
+    setScope,
+    dismissError,
+    openDialog,
+    closeDialog,
+  };
 }
 
 export type XRayController = ReturnType<typeof useXRay>;

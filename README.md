@@ -145,7 +145,7 @@ The API builds the graph at startup (`GraphBootstrapper`), in this order:
 
 | Gap | Priority | Status |
 |---|---|---|
-| `dbo.AF_Pick_GetAvailableQuantity` definition (design §16, P0) | delivered 2026-09-12 | **Closed**: the sanitized definition is in `source/sql`; `availableQuantity` traces through the function's `RETURN` expression, the `InventoryData` CTE and the `DET2_ILG_ProductDeliveryMethod` / `PRODUCT_GROUP` / `INVENTORY2` columns. Explain is *Known*; Investigate of the observed `0` yields a hypothesis (ISNULL fallback of `SUM(QuantityOnHand)`) and *Need More Evidence*. |
+| `dbo.AF_Pick_GetAvailableQuantity` definition (design §16, P0) | delivered 2026-09-12 | **Closed**: the sanitized definition is in `source/sql`; `availableQuantity` traces through the function's `RETURN` expression, the `InventoryData` CTE and the `DET2_ILG_ProductDeliveryMethod` / `PRODUCT_GROUP` / `INVENTORY2` columns. The demo fixture captures the UDF return per material; Investigate of the observed `0` is *Known* with a supported hypothesis (EBBA inventory empty at the pick bin). |
 | `dbo.AP_Pick_GetPutStorageBin` definition (storage bins of a destination wagon) | P1 | **Half closed** 2026-09-17: the site configuration names the procedure (`source/config/site-settings.json`, `PickingOptions.StorageBinProcedure`), so `GetStorageBin` is Known and the Dapper call resolves with `configuration` evidence (0.9). The procedure body is still outstanding: `destinationWagon.storageBin.location` stops explicitly at the Pending procedure |
 | `dbo.AP_Pick_GetMultiPickOrderRows` (multi pick order flow) | P2 | Unknown: not part of the demo, left as a documented gap |
 
@@ -163,7 +163,7 @@ Follow [`docs/demo-script.md`](docs/demo-script.md) (design §14); [`docs/demo/t
 | 2 Trace Source `availableQuantity` (static) | `/?field=availableQuantity` |
 | 3 Live Trace PICK0843858 / T12288 | `/?order=PICK0843858&field=availableQuantity&scope=T12288` |
 | 3r Replay the flow of that trace (video kit) | `/?order=PICK0843858&field=availableQuantity&scope=T12288&replay=1` |
-| 4 Investigate inside the UDF: hypothesis for the 0, Need More Evidence | `/?order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1` |
+| 4 Investigate inside the UDF: EBBA inventory returned 0, Known | `/?order=PICK0843858&field=availableQuantity&scope=T12288&investigate=1` |
 | 5 `WMS_Enabled` impact back to the page | `/?impact=param:WMS_Enabled` |
 | 6 FIFO / `STRING_AGG` storage-bin lineage | `/?order=PICK0843858&field=json:pickOrderRows.pickStorageBin.storageBin&scope=T12288` |
 | 6b Pending by design: destination wagon storage bin | `/?field=json:pickOrderRows.destinationWagon.storageBin.location&explain=1` |
@@ -211,7 +211,7 @@ dotnet run --project src/MesXray.Api
 
 The LLM receives only the evidence bundle (never a connection string, host or raw response) and must answer with a JSON schema. Every fact is re-validated by `EvidenceBindingValidator`: facts citing ids outside the bundle are downgraded to unverified hypotheses, and the verdict/confidence are capped. If the endpoint is unavailable the API falls back to the rule engine and records that in `audit.note`.
 
-Verdict rules (rule engine and validator alike): an Unknown/Pending definition on the path, or an unknown claimed by the model, gives *Need More Evidence*; an observed value that is only explained by an unverified hypothesis (an `ISNULL` default, a constant branch such as `RETURN 1000`) also gives *Need More Evidence*; runtime details that were merely not captured (values computed inside SQL Server) are reported under `unknowns` but do not make an evidenced lineage unknown. *Known* means every hop is backed by scanned code or runtime evidence.
+Verdict rules (rule engine and validator alike): an Unknown/Pending definition on the path, or an unknown claimed by the model, gives *Need More Evidence*; an observed value that is only explained by an *unverified* hypothesis (an `ISNULL` default or constant branch without a captured function return) also gives *Need More Evidence*; a hypothesis confirmed by a captured UDF return is *supported* and does not block *Known*; runtime details that were merely not captured are reported under `unknowns` but do not make an evidenced lineage unknown. *Known* means every hop is backed by scanned code or runtime evidence.
 
 ## Tests and CI
 
@@ -222,7 +222,7 @@ cd src/MesXray.Web && npm run e2e     # 15 Playwright tests: the seven demo scen
 cd src/MesXray.Web && npm run demo:shots   # re-shoot docs/demo/*.png from the same scene definitions
 ```
 
-The end-to-end suite (`src/MesXray.Web/e2e/`) drives the deep links of `docs/demo-script.md` through the real API and UI: it starts its own API (port 5090, fixtures only) and Vite (port 5199), so a running `scripts/xray.sh` stack is left alone. Numbers are compared with what the API returns for the same request; the facts the talk track quotes (`@WMS_Enabled` branches, the `ISNULL` hypothesis, `STRING_AGG`, the Pending `GetStorageBin`) are asserted literally. Locally it uses the Google Chrome that is already installed (nothing is downloaded; set `PW_CHANNEL` to use another channel); CI installs Playwright's Chromium.
+The end-to-end suite (`src/MesXray.Web/e2e/`) drives the deep links of `docs/demo-script.md` through the real API and UI: it starts its own API (port 5090, fixtures only) and Vite (port 5199), so a running `scripts/xray.sh` stack is left alone. Numbers are compared with what the API returns for the same request; the facts the talk track quotes (`@WMS_Enabled` branches, the supported ISNULL / EBBA-inventory hypothesis, `STRING_AGG`, the Pending `GetStorageBin`) are asserted literally. Locally it uses the Google Chrome that is already installed (nothing is downloaded; set `PW_CHANNEL` to use another channel); CI installs Playwright's Chromium.
 
 `.github/workflows/ci.yml` runs four jobs on every push/PR: .NET build and tests (warnings are errors), web type-check and build, the Playwright demo scenes, and a gitleaks secret scan that keeps fixtures and docs sanitized.
 

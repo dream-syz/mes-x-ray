@@ -91,11 +91,23 @@ public sealed partial class EvidenceBundleBuilder
         }
 
         // Parameter values are decisive for branch selection: include them even when not on a hop.
+        // Same-scope API response leaves (sibling fields of the material row) give the investigator row context.
         if (runtime is not null)
         {
             foreach (var evidence in runtime.Evidence.Where(e => e.EvidenceType == RuntimeEvidenceType.Parameter))
             {
                 if (hops.Any(h => h.NodeId == evidence.NodeId))
+                {
+                    items.TryAdd(evidence.Id, new EvidenceItem(evidence.Id, EvidenceKind.Runtime, DescribeRuntime(evidence), evidence.NodeId, evidence.Scope, evidence.Value));
+                }
+            }
+
+            if (trace.Scope is { Length: > 0 } scope)
+            {
+                foreach (var evidence in runtime.Evidence.Where(e =>
+                             e.EvidenceType == RuntimeEvidenceType.ApiResponse
+                             && e.NodeId.StartsWith("json:pickOrderRows.", StringComparison.Ordinal)
+                             && string.Equals(e.Scope, scope, StringComparison.OrdinalIgnoreCase)))
                 {
                     items.TryAdd(evidence.Id, new EvidenceItem(evidence.Id, EvidenceKind.Runtime, DescribeRuntime(evidence), evidence.NodeId, evidence.Scope, evidence.Value));
                 }

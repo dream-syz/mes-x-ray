@@ -2,22 +2,18 @@ import { useI18n } from "../lib/I18nContext";
 import type { XRayController } from "../state/useXRay";
 
 export function StatusBar({ controller }: { controller: XRayController }) {
-  const { state, dismissError } = controller;
+  const { state } = controller;
   const { t } = useI18n();
   const build = state.overview?.build;
   const gaps = state.overview?.knownGaps ?? [];
 
+  // Errors are shown in the banner under the header (App); the status bar carries confirmations and the build report.
   return (
     <footer className="statusbar">
-      {state.error ? (
-        <span className="status-error" role="alert">
-          {state.error}
-          <button type="button" className="btn ghost small" onClick={dismissError}>
-            {t("status.dismiss")}
-          </button>
+      {state.notice ? (
+        <span className="status-notice" role="status">
+          {state.notice}
         </span>
-      ) : state.notice ? (
-        <span className="status-notice">{state.notice}</span>
       ) : (
         <span>{t("status.readonly")}</span>
       )}

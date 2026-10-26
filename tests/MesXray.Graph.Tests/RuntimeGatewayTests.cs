@@ -144,7 +144,12 @@ public sealed class RuntimeGatewayTests
         Assert.Equal("0", json.Value.GetRawText());
         Assert.Equal(RuntimeEvidenceType.ApiResponse, json.EvidenceType);
 
+        var udf = Assert.Single(trace.Evidence, e => e.NodeId == "udf:dbo.AF_Pick_GetAvailableQuantity" && e.Scope == "T12288" && e.EvidenceType == RuntimeEvidenceType.QueryResult);
+        Assert.Equal("0", udf.Value.GetRawText());
+        Assert.Equal("T12288.AF_Pick_GetAvailableQuantity", udf.Label);
+
         Assert.Contains(trace.Evidence, e => e.NodeId == "sp:dbo.AP_Pick_GetPickOrderRows" && e.EvidenceType == RuntimeEvidenceType.Timing);
+        Assert.DoesNotContain(trace.Unknowns, u => u.Contains("AF_Pick_GetAvailableQuantity", StringComparison.Ordinal));
         Assert.DoesNotContain(trace.Evidence, e => e.NodeId.Contains("user", StringComparison.OrdinalIgnoreCase));
     }
 

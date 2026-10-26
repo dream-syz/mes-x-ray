@@ -67,15 +67,20 @@ internal abstract class InvestigatorPhrases
     public abstract string StepCheckedDefinitions(int count);
     public abstract string UnknownNoRuntimeValue(string name, string traceId, string? scope);
     public abstract string NextRunTracePickOrder { get; }
-    public abstract string Summary(string focus, int factCount, string? spName, IReadOnlyList<string> observed, ExplainVerdict verdict, IEnumerable<string> unknownNames, bool hypothesisOnly, int runtimeNotes);
+    public abstract string Summary(string focus, int factCount, string? spName, IReadOnlyList<string> observed, ExplainVerdict verdict, IEnumerable<string> unknownNames, bool hypothesisOnly, int runtimeNotes, string? cause = null);
     public abstract string HypothesisIsNullFallback(string produced, string observed, string expression);
+    public abstract string HypothesisIsNullFallbackConfirmed(string produced, string observed, string expression);
     public abstract string CheckInnerFunction { get; }
     public abstract string FactLocalVariable(string produced, string note);
     public abstract string FactBranchConstant(string condition, string produced, string literal);
     public abstract string FactBranchDependsOnRows(string produced, IEnumerable<string> columns);
     public abstract string NextCheckRows(IReadOnlyList<string> tables);
     public abstract string HypothesisConstantBranch(string produced, string observed, string condition);
+    public abstract string HypothesisConstantBranchConfirmed(string produced, string observed, string condition);
     public abstract string CheckConstantBranch(string condition);
+    public abstract string FactFunctionReturned(string function, IReadOnlyList<string> observed);
+    public abstract string FactRowContext(string pickQuantity, string onHand, string allocated, string storageBin);
+    public abstract string CauseFunctionReturned(string function, string observed);
     public abstract string Qualify(HopSummary hop);
 }
 
@@ -126,7 +131,7 @@ internal sealed class EnglishPhrases : InvestigatorPhrases
     public override string UnknownNoRuntimeValue(string name, string traceId, string? scope) => $"No runtime value for {name} in trace {traceId}{(scope is null ? string.Empty : $" / {scope}")}.";
     public override string NextRunTracePickOrder => "Run trace_pick_order for the order to capture the value.";
 
-    public override string Summary(string focus, int factCount, string? spName, IReadOnlyList<string> observed, ExplainVerdict verdict, IEnumerable<string> unknownNames, bool hypothesisOnly, int runtimeNotes)
+    public override string Summary(string focus, int factCount, string? spName, IReadOnlyList<string> observed, ExplainVerdict verdict, IEnumerable<string> unknownNames, bool hypothesisOnly, int runtimeNotes, string? cause = null)
     {
         var value = observed.Count > 0 ? $" Observed {string.Join("; ", observed)}." : string.Empty;
         var origin = spName is null ? string.Empty : $" It originates in {spName}.";
@@ -138,17 +143,23 @@ internal sealed class EnglishPhrases : InvestigatorPhrases
             _ when names.Count > 0 => $" Need more evidence: {string.Join(", ", names)}.",
             _ => " Need more evidence (see unknowns).",
         };
-        return $"{focus} is explained through {factCount} evidence-backed fact(s).{origin}{value}{caveat}";
+        var causeText = string.IsNullOrWhiteSpace(cause) ? string.Empty : $" {cause}";
+        return $"{focus} is explained through {factCount} evidence-backed fact(s).{origin}{value}{caveat}{causeText}";
     }
 
     public override string HypothesisIsNullFallback(string produced, string observed, string expression) => $"{produced} equals the ISNULL fallback {observed} of `{expression}`; the inner value was probably NULL (no matching row, or the inner function returned NULL).";
+    public override string HypothesisIsNullFallbackConfirmed(string produced, string observed, string expression) => $"{produced} returned {observed}, matching the ISNULL fallback of `{expression}`: EBBA inventory (INVENTORY2) has no on-hand quantity for this material at the pick storage bin.";
     public override string CheckInnerFunction => "Evaluate the inner expression for this material in TEST (read-only) and check whether it is NULL.";
     public override string FactLocalVariable(string produced, string note) => $"Local variable in {produced}: {note}.";
     public override string FactBranchConstant(string condition, string produced, string literal) => $"Branch `{condition}` of {produced} returns the constant {literal}.";
     public override string FactBranchDependsOnRows(string produced, IEnumerable<string> columns) => $"Which branch of {produced} applies depends on row data: {string.Join(", ", columns)}; these rows were not captured in the trace.";
     public override string NextCheckRows(IReadOnlyList<string> tables) => $"Query {string.Join(", ", tables)} for this material in TEST (read-only) to determine the active branch.";
     public override string HypothesisConstantBranch(string produced, string observed, string condition) => $"{produced} equals the constant {observed} returned when {condition}; that condition probably held for this material.";
+    public override string HypothesisConstantBranchConfirmed(string produced, string observed, string condition) => $"{produced} returned {observed}, confirming the constant branch when {condition}.";
     public override string CheckConstantBranch(string condition) => $"Evaluate `{condition}` for this material in TEST (read-only) and confirm it holds.";
+    public override string FactFunctionReturned(string function, IReadOnlyList<string> observed) => $"Function {function} returned {string.Join("; ", observed)}.";
+    public override string FactRowContext(string pickQuantity, string onHand, string allocated, string storageBin) => $"Material row context: pickQuantity = {pickQuantity}; onHandQuantity = {onHand} (already picked); allocatedQuantity = {allocated} (remaining to pick); storageBin = {storageBin}.";
+    public override string CauseFunctionReturned(string function, string observed) => $"Cause of {observed}: {function} queried EBBA inventory for this material and returned {observed}.";
 
     public override string Qualify(HopSummary hop)
     {
@@ -242,7 +253,7 @@ internal sealed class ChinesePhrases : InvestigatorPhrases
     public override string UnknownNoRuntimeValue(string name, string traceId, string? scope) => $"trace {traceId}{(scope is null ? string.Empty : $" / {scope}")} 中没有 {name} 的运行时取值。";
     public override string NextRunTracePickOrder => "对该订单执行 trace_pick_order 以捕获取值。";
 
-    public override string Summary(string focus, int factCount, string? spName, IReadOnlyList<string> observed, ExplainVerdict verdict, IEnumerable<string> unknownNames, bool hypothesisOnly, int runtimeNotes)
+    public override string Summary(string focus, int factCount, string? spName, IReadOnlyList<string> observed, ExplainVerdict verdict, IEnumerable<string> unknownNames, bool hypothesisOnly, int runtimeNotes, string? cause = null)
     {
         var value = observed.Count > 0 ? $"观测值 {string.Join("；", observed)}。" : string.Empty;
         var origin = spName is null ? string.Empty : $"它来源于 {spName}。";
@@ -254,17 +265,23 @@ internal sealed class ChinesePhrases : InvestigatorPhrases
             _ when names.Count > 0 => $"需要更多证据：{string.Join("、", names)}。",
             _ => "需要更多证据（见未知项）。",
         };
-        return $"{focus} 由 {factCount} 条有证据支撑的事实解释。{origin}{value}{caveat}";
+        var causeText = string.IsNullOrWhiteSpace(cause) ? string.Empty : cause;
+        return $"{focus} 由 {factCount} 条有证据支撑的事实解释。{origin}{value}{caveat}{causeText}";
     }
 
     public override string HypothesisIsNullFallback(string produced, string observed, string expression) => $"{produced} 等于 `{expression}` 中 ISNULL 的回退值 {observed}；内层取值很可能为 NULL（没有匹配的行，或内层函数返回 NULL）。";
+    public override string HypothesisIsNullFallbackConfirmed(string produced, string observed, string expression) => $"{produced} 返回 {observed}，等于 ELSE 分支 `{expression}` 的回退值：EBBA 库存（INVENTORY2）中该物料在拣货库位没有在库数量。";
     public override string CheckInnerFunction => "在 TEST 环境只读执行内层表达式，检查该物料下其是否为 NULL。";
     public override string FactLocalVariable(string produced, string note) => $"{produced} 中的局部变量：{note}。";
     public override string FactBranchConstant(string condition, string produced, string literal) => $"{produced} 的分支 `{condition}` 返回常量 {literal}。";
     public override string FactBranchDependsOnRows(string produced, IEnumerable<string> columns) => $"{produced} 走哪个分支取决于行数据：{string.Join("、", columns)}；trace 中未捕获这些行。";
     public override string NextCheckRows(IReadOnlyList<string> tables) => $"在 TEST 环境只读查询 {string.Join("、", tables)} 中该物料的行，以确定生效分支。";
     public override string HypothesisConstantBranch(string produced, string observed, string condition) => $"{produced} 等于条件 {condition} 成立时返回的常量 {observed}；该条件很可能对此物料成立。";
+    public override string HypothesisConstantBranchConfirmed(string produced, string observed, string condition) => $"{produced} 返回 {observed}，证实条件 {condition} 成立时的常量分支。";
     public override string CheckConstantBranch(string condition) => $"在 TEST 环境只读验证 `{condition}` 对该物料是否成立。";
+    public override string FactFunctionReturned(string function, IReadOnlyList<string> observed) => $"函数 {function} 返回 {string.Join("；", observed)}。";
+    public override string FactRowContext(string pickQuantity, string onHand, string allocated, string storageBin) => $"该物料行：pickQuantity = {pickQuantity}；onHandQuantity = {onHand}（已拣选数量）；allocatedQuantity = {allocated}（剩余待拣选数量）；storageBin = {storageBin}。";
+    public override string CauseFunctionReturned(string function, string observed) => $"{observed} 的原因：{function} 查询 EBBA 库存中该物料的在库量，返回 {observed}。";
 
     public override string Qualify(HopSummary hop)
     {

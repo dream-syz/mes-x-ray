@@ -66,10 +66,61 @@
       "qualifiedName": "dbo.AF_Pick_GetAvailableQuantity",
       "layer": "data",
       "status": "known",
-      "description": "WMS available quantity for a product at a warehouse location. Returns 1000 for LVP delivery; otherwise sums INVENTORY2 rows with InventoryStatus = 1 (QuantityAllocated for ECU products and LVS_MPA / SLFR_MPA / LVS_LINE / SLFR_LINE delivery methods, QuantityOnHand otherwise), adding the parent location when Pick_UseParentLocation = 1 and skipping child containers (ChildContainerCalssID).",
+      "description": "WMS available quantity for a product at a warehouse location (EBBA inventory). Returns 1000 for LVP delivery; otherwise sums INVENTORY2 rows with InventoryStatus = 1 (QuantityAllocated for ECU products and LVS_MPA / SLFR_MPA / LVS_LINE / SLFR_LINE delivery methods, QuantityOnHand otherwise), adding the parent location when Pick_UseParentLocation = 1 and skipping child containers (ChildContainerCalssID).",
       "metadata": {
         "provided": "2026-09-12 (P0 input of design doc section 16)"
       }
+    },
+    {
+      "id": "json:pickOrderRows.availableQuantity",
+      "type": "jsonField",
+      "name": "availableQuantity",
+      "layer": "web",
+      "status": "known",
+      "description": "EBBA inventory available quantity for this material, via AF_Pick_GetAvailableQuantity when WMS_Enabled = 1."
+    },
+    {
+      "id": "json:pickOrderRows.pickStorageBin.onHandQuantity",
+      "type": "jsonField",
+      "name": "onHandQuantity",
+      "layer": "web",
+      "status": "known",
+      "description": "Quantity already picked for this material on the pick order (SUM of PickedQuantity), not EBBA warehouse on-hand."
+    },
+    {
+      "id": "json:pickOrderRows.pickStorageBin.allocatedQuantity",
+      "type": "jsonField",
+      "name": "allocatedQuantity",
+      "layer": "web",
+      "status": "known",
+      "description": "Remaining quantity still to pick for this material (SUM of Quantity − PickedQuantity)."
+    },
+    {
+      "id": "spcol:dbo.AP_Pick_GetPickStorageBin.OnHandQuantity",
+      "type": "resultColumn",
+      "name": "OnHandQuantity",
+      "qualifiedName": "dbo.AP_Pick_GetPickStorageBin.OnHandQuantity",
+      "layer": "data",
+      "status": "known",
+      "description": "Already-picked quantity for the material: SUM(APPQD.PickedQuantity)."
+    },
+    {
+      "id": "spcol:dbo.AP_Pick_GetPickStorageBin.AllocatedQuantity",
+      "type": "resultColumn",
+      "name": "AllocatedQuantity",
+      "qualifiedName": "dbo.AP_Pick_GetPickStorageBin.AllocatedQuantity",
+      "layer": "data",
+      "status": "known",
+      "description": "Remaining quantity to pick for the material: SUM(APPQD.Quantity − ISNULL(APPQD.PickedQuantity, 0))."
+    },
+    {
+      "id": "table:dbo.INVENTORY2",
+      "type": "table",
+      "name": "INVENTORY2",
+      "qualifiedName": "dbo.INVENTORY2",
+      "layer": "data",
+      "status": "known",
+      "description": "EBBA inventory: on-hand and allocated quantity per product and storage location."
     },
     {
       "id": "udf:dbo.AF_GetSystemParameterValueint",

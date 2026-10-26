@@ -8,9 +8,9 @@ namespace MesXray.Runtime.Fixtures;
 
 /// <summary>
 /// Turns a runtime fixture into <see cref="RuntimeEvidence"/> items bound to graph node ids:
-/// <c>param:*</c> for system parameters, <c>spcol:*</c> / <c>sp:*</c> for procedure rows and timings, and
-/// <c>json:*</c> for every leaf of the API response. Evidence ids are deterministic (<c>ev-001</c>, ...) so that AI
-/// conclusions can cite them reproducibly.
+/// <c>param:*</c> for system parameters, <c>spcol:*</c> / <c>sp:*</c> for procedure rows and timings,
+/// <c>udf:*</c> for scalar function return values, and <c>json:*</c> for every leaf of the API response.
+/// Evidence ids are deterministic (<c>ev-001</c>, ...) so that AI conclusions can cite them reproducibly.
 /// </summary>
 public sealed class EvidenceBinder
 {
@@ -86,6 +86,45 @@ public sealed class EvidenceBinder
                     Add(NodeIds.ResultColumn(ownerKey, column), RuntimeEvidenceType.QueryResult, value, scope,
                         scope is null ? column : $"{scope}.{column}");
                 }
+            }
+        }
+
+        foreach (var (function, result) in fixture.FunctionResults.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            var ownerKey = function.Trim('[', ']');
+            var parts = ownerKey.Split('.', 2);
+            var udfId = parts.Length == 2 ? NodeIds.Function(parts[1], parts[0]) : NodeIds.Function(ownerKey);
+            var leaf = NodeIds.LeafName(udfId);
+
+            if (result.DurationMs is { } duration)
+            {
+                Add(udfId, RuntimeEvidenceType.Timing, Scalar(duration), scope: null, label: $"{ownerKey} {duration} ms");
+            }
+
+            var rows = result.Rows;
+            if (rows.Count > _options.MaxRows)
+            {
+                unknowns.Add($"{ownerKey}: {rows.Count - _options.MaxRows} rows beyond the {_options.MaxRows}-row limit were not captured.");
+                rows = rows.Take(_options.MaxRows).ToList();
+            }
+
+            var returnColumn = string.IsNullOrWhiteSpace(result.ReturnColumn) ? "ReturnValue" : result.ReturnColumn;
+            foreach (var row in rows)
+            {
+                if (!row.TryGetValue(returnColumn, out var value))
+                {
+                    continue;
+                }
+
+                string? scope = null;
+                if (result.RowKey is not null && row.TryGetValue(result.RowKey, out var key))
+                {
+                    var keyText = key.ValueKind == JsonValueKind.String ? key.GetString() : key.GetRawText();
+                    scope = string.Equals(keyText, fixture.EntityKey, StringComparison.OrdinalIgnoreCase) ? null : keyText;
+                }
+
+                Add(udfId, RuntimeEvidenceType.QueryResult, value, scope,
+                    scope is null ? leaf : $"{scope}.{leaf}");
             }
         }
 

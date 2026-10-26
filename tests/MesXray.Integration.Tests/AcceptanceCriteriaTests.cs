@@ -122,8 +122,10 @@ public sealed class AcceptanceCriteriaTests : IClassFixture<XRayApiFactory>
         Assert.Contains(facts, f => f!["text"]!.GetValue<string>().Contains("returns the constant 1000", StringComparison.Ordinal));
         Assert.Contains(facts, f => f!["text"]!.GetValue<string>().Contains("dbo.INVENTORY2.QuantityOnHand", StringComparison.Ordinal));
         Assert.Empty(explanation["hypotheses"]!.AsArray());
-        Assert.Contains(explanation["unknowns"]!.AsArray(), u => u!.GetValue<string>().Contains("evaluated inside SQL Server", StringComparison.Ordinal));
-        Assert.InRange(explanation["confidence"]!.GetValue<double>(), 0.85, 0.95);
+        Assert.DoesNotContain(explanation["unknowns"]!.AsArray(), u => u!.GetValue<string>().Contains("evaluated inside SQL Server", StringComparison.Ordinal));
+        Assert.Contains(facts, f => f!["text"]!.GetValue<string>().Contains("Function AF_Pick_GetAvailableQuantity returned", StringComparison.Ordinal));
+        Assert.Contains(explanation["summary"]!.GetValue<string>(), "Cause of 0: AF_Pick_GetAvailableQuantity", StringComparison.Ordinal);
+        Assert.InRange(explanation["confidence"]!.GetValue<double>(), 0.9, 0.95);
 
         var audit = explanation["audit"]!;
         Assert.Equal("rules", audit["provider"]!.GetValue<string>());
@@ -167,7 +169,7 @@ public sealed class AcceptanceCriteriaTests : IClassFixture<XRayApiFactory>
     }
 
     [Fact]
-    public async Task AC03_investigate_explains_zero_with_a_hypothesis_bound_to_the_function_return_expression()
+    public async Task AC03_investigate_explains_zero_with_a_supported_hypothesis_bound_to_the_function_return()
     {
         var response = await _client.PostAsync($"{Api}/ai/investigate", XRayApiFactory.Json(new
         {
@@ -181,14 +183,17 @@ public sealed class AcceptanceCriteriaTests : IClassFixture<XRayApiFactory>
         var body = await XRayApiFactory.ReadJsonAsync(response);
         var explanation = body["explanation"]!;
 
-        Assert.Equal("needMoreEvidence", explanation["verdict"]!.GetValue<string>());
-        Assert.Contains("需要更多证据", explanation["summary"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Equal("known", explanation["verdict"]!.GetValue<string>());
+        Assert.Contains("0 的原因：AF_Pick_GetAvailableQuantity", explanation["summary"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Contains("EBBA", explanation["summary"]!.GetValue<string>(), StringComparison.Ordinal);
         var hypothesis = Assert.Single(explanation["hypotheses"]!.AsArray());
         Assert.Contains("ISNULL(SUM(QuantityOnHand), 0)", hypothesis!["text"]!.GetValue<string>(), StringComparison.Ordinal);
-        Assert.Equal("unverified", hypothesis["status"]!.GetValue<string>());
-        Assert.Contains("TEST", hypothesis["suggestedCheck"]!.GetValue<string>(), StringComparison.Ordinal);
-        Assert.Contains(explanation["nextSteps"]!.AsArray(), s => s!.GetValue<string>().Contains("dbo.DET2_ILG_ProductDeliveryMethod", StringComparison.Ordinal));
-        Assert.InRange(explanation["confidence"]!.GetValue<double>(), 0.7, 0.85);
+        Assert.Contains("EBBA 库存", hypothesis["text"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Equal("supported", hypothesis["status"]!.GetValue<string>());
+        Assert.True(hypothesis["suggestedCheck"] is null || string.IsNullOrEmpty(hypothesis["suggestedCheck"]!.GetValue<string>()));
+        Assert.Contains(explanation["knownFacts"]!.AsArray(), f => f!["text"]!.GetValue<string>().Contains("已拣选数量", StringComparison.Ordinal));
+        Assert.DoesNotContain(explanation["nextSteps"]!.AsArray(), s => s!.GetValue<string>().Contains("dbo.DET2_ILG_ProductDeliveryMethod", StringComparison.Ordinal));
+        Assert.InRange(explanation["confidence"]!.GetValue<double>(), 0.9, 0.95);
     }
 
     [Fact]

@@ -220,7 +220,7 @@ start_api() {
   dll="$ROOT/artifacts/bin/MesXray.Api/$config_dir/MesXray.Api.dll"
   [[ -f "$dll" ]] || die "Build output not found: $dll (run without --no-build)."
 
-  log "Starting API ($CONFIG) at $API_URL…"
+  log "Starting API ($CONFIG) at ${API_URL}…"
   # Run the built DLL directly (not 'dotnet run') so there is exactly one process to manage.
   # Working directory = project folder: that is the content root (appsettings.json, wwwroot) and the
   # fixture folder is resolved by walking up from there (XRay:Fixtures:Root).
@@ -260,7 +260,7 @@ start_web() {
     fi
   fi
 
-  log "Starting Web UI (Vite dev server, /api → $API_URL) at $WEB_URL…"
+  log "Starting Web UI (Vite dev server, /api → $API_URL) at ${WEB_URL}…"
   # Invoke vite.js with node directly (not 'npm run dev') so the pid we record is the server itself.
   (
     cd "$WEB_PROJECT"
